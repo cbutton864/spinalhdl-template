@@ -1,0 +1,41 @@
+package mydesign
+
+import spinal.core._
+import spinal.lib._
+
+/** Bus-agnostic counter core.
+  *
+  * Increments on each clock when `enable` is asserted.
+  * Wraps at `(1 << width) - 1`.
+  *
+  * Core pattern: stateless `object` with `build()` method.
+  * Returns a plain Scala `case class Io` — NOT a Bundle.
+  * All signals are top-level peers (no Component hierarchy).
+  */
+object CounterCore {
+
+  /** Plain Scala case class — NOT a Bundle.
+    * Fields are references to signals created by `build()`.
+    */
+  case class Io(
+      count: UInt
+  )
+
+  def build(
+      periphName: String = "counter",
+      width:      Int    = 8,
+      enable:     Bool   = null
+  ): Io = {
+    require(enable != null, "enable signal is required")
+    require(width >= 1,     s"width must be >= 1, got $width")
+
+    val countReg = Reg(UInt(width bits)) init 0
+    countReg.setName(s"${periphName}_countReg")
+
+    when(enable) {
+      countReg := countReg + 1
+    }
+
+    Io(count = countReg)
+  }
+}
