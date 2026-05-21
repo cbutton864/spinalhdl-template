@@ -10,7 +10,7 @@ import spinal.lib._
   * Core pattern: stateless `object` with `build()` method.
   * Returns a plain Scala `case class Io` — NOT a Bundle.
   */
-object ThresholdCore {
+object ComparatorCore {
 
   /** Plain Scala case class — NOT a Bundle.
     * Fields are references to signals created by `build()`.
@@ -20,7 +20,7 @@ object ThresholdCore {
   )
 
   def build(
-      periphName: String = "threshold",
+      periphName: String = "comparator",
       threshold:  Int    = 128,
       countIn:    UInt   = null
   ): Io = {

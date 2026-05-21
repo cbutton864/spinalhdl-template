@@ -14,17 +14,31 @@ case class Params(
     // ── Clock ──────────────────────────────────────────────────
     sysClkHz: HertzNumber = 100 MHz,
 
-    // ── Example parameters ────────────────────────────────────
-    counterWidth: Int = 8,
-    threshold:    Int = 128
-) {
-  require(counterWidth >= 1 && counterWidth <= 32,
-    s"counterWidth must be 1..32, got $counterWidth")
+    // ── Timer ──────────────────────────────────────────────────
+    timerWidth: Int = 8,
 
-  /** Plugin list — order does not matter; Fiber resolves dependencies. */
+    // ── Comparator ─────────────────────────────────────────────
+    threshold:  Int = 128
+) {
+  require(timerWidth >= 1 && timerWidth <= 32,
+    s"timerWidth must be 1..32, got $timerWidth")
+
+  require(threshold >= 0,
+    s"threshold must be >= 0, got $threshold")
+
+  /** Default plugin list — order does not matter; Fiber resolves dependencies.
+    *
+    * Stage 2 — swap PassThroughPlugin ↔ ScalePlugin(shift = N)
+    * Stage 3 — swap ComparatorPlugin  ↔ HysteresisPlugin(lo = N, hi = M)
+    *
+    * Optional stages not included by default:
+    *   EdgeDetectorPlugin() — Stage 4: rising/falling edge detection
+    *   ApbMonitorPlugin()   — side channel: exposes timer/threshold state via APB3
+    */
   def plugins: Seq[FiberPlugin] = Seq(
-    CounterPlugin(width = counterWidth),
-    ThresholdPlugin(threshold = threshold),
+    TimerPlugin(width = timerWidth),           // Stage 1: signal source
+    PassThroughPlugin(),                        // Stage 2: swap ↔ ScalePlugin(shift = 2)
+    ComparatorPlugin(threshold = threshold),    // Stage 3: swap ↔ HysteresisPlugin(lo = 64, hi = 192)
     TopIoExportPlugin()
   )
 }

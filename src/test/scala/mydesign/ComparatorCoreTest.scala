@@ -3,22 +3,25 @@ package mydesign
 import spinal.core._
 import spinal.core.sim._
 import org.scalatest.funsuite.AnyFunSuite
-import mydesign.testhelpers.ThresholdHarness
+import mydesign.testhelpers.ComparatorHarness
 
-/** Unit tests for ThresholdCore.
+/** Unit tests for ComparatorCore.
   *
   * Tests the threshold comparator with various input values.
-  * Uses the ThresholdHarness wrapper for Verilator simulation.
+  * Uses the ComparatorHarness wrapper for Verilator simulation.
+  *
+  * Timing note: ComparatorCore has 1 cycle latency (one RegInit stage).
+  * After driving countIn, wait 2 edges: one to capture, one to read stable output.
   */
-class ThresholdCoreTest extends AnyFunSuite {
+class ComparatorCoreTest extends AnyFunSuite {
 
-  val width = 8
+  val width     = 8
   val threshold = 128
 
   def compile() = SimConfig
     .withWave
-    .workspacePath("simWorkspace/ThresholdCoreTest")
-    .compile(new ThresholdHarness(width = width, threshold = threshold))
+    .workspacePath("simWorkspace/ComparatorCoreTest")
+    .compile(new ComparatorHarness(width = width, threshold = threshold))
 
   test("Flag is low when count is below threshold") {
     compile().doSim("below") { dut =>
@@ -28,7 +31,7 @@ class ThresholdCoreTest extends AnyFunSuite {
 
       for (v <- Seq(0, 1, 64, 100, 127)) {
         dut.io.countIn #= v
-        dut.clockDomain.waitSampling(2) // 1 cycle for registered output
+        dut.clockDomain.waitSampling(2)
         assert(!dut.io.above.toBoolean,
           s"Expected above=false for count=$v (threshold=$threshold)")
       }
@@ -43,7 +46,7 @@ class ThresholdCoreTest extends AnyFunSuite {
 
       for (v <- Seq(128, 129, 200, 255)) {
         dut.io.countIn #= v
-        dut.clockDomain.waitSampling(2) // 1 cycle for registered output
+        dut.clockDomain.waitSampling(2)
         assert(dut.io.above.toBoolean,
           s"Expected above=true for count=$v (threshold=$threshold)")
       }
@@ -56,7 +59,6 @@ class ThresholdCoreTest extends AnyFunSuite {
       dut.io.countIn #= 0
       dut.clockDomain.waitSampling(3)
 
-      // Ramp from 126 to 130, check transition
       dut.io.countIn #= 126
       dut.clockDomain.waitSampling(2)
       assert(!dut.io.above.toBoolean, "126 should be below threshold")
@@ -67,7 +69,7 @@ class ThresholdCoreTest extends AnyFunSuite {
 
       dut.io.countIn #= 128
       dut.clockDomain.waitSampling(2)
-      assert(dut.io.above.toBoolean, "128 should be at threshold")
+      assert(dut.io.above.toBoolean, "128 should be at threshold (above=true)")
 
       dut.io.countIn #= 129
       dut.clockDomain.waitSampling(2)

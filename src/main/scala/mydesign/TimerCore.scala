@@ -3,7 +3,7 @@ package mydesign
 import spinal.core._
 import spinal.lib._
 
-/** Bus-agnostic counter core.
+/** Bus-agnostic free-running timer core.
   *
   * Increments on each clock when `enable` is asserted.
   * Wraps at `(1 << width) - 1`.
@@ -12,7 +12,7 @@ import spinal.lib._
   * Returns a plain Scala `case class Io` — NOT a Bundle.
   * All signals are top-level peers (no Component hierarchy).
   */
-object CounterCore {
+object TimerCore {
 
   /** Plain Scala case class — NOT a Bundle.
     * Fields are references to signals created by `build()`.
@@ -22,7 +22,7 @@ object CounterCore {
   )
 
   def build(
-      periphName: String = "counter",
+      periphName: String = "timer",
       width:      Int    = 8,
       enable:     Bool   = null
   ): Io = {

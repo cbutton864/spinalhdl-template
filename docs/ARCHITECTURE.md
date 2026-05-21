@@ -1,8 +1,8 @@
 # SpinalHDL Flat-Plugin Architecture
 
-A design methodology for SpinalHDL FPGA projects using **FiberPlugin** composable architecture.
-This pattern produces flat, readable Verilog with no component hierarchy, while keeping
-the Scala source modular, testable, and reusable.
+A design methodology for SpinalHDL FPGA and ASIC projects using **FiberPlugin** composable
+architecture. This pattern produces flat, readable Verilog with no component hierarchy, while
+keeping the Scala source modular, testable, and reusable.
 
 ---
 
@@ -12,17 +12,20 @@ the Scala source modular, testable, and reusable.
 2. [Project Structure](#2-project-structure)
 3. [The Plugin Pattern](#3-the-plugin-pattern)
 4. [The Core Pattern](#4-the-core-pattern)
-5. [TopIoExportPlugin — The Wiring Hub](#5-topioexportplugin--the-wiring-hub)
-6. [Params — Centralised Configuration](#6-params--centralised-configuration)
-7. [Top Component — Static IO Shell](#7-top-component--static-io-shell)
-8. [Verilog Generation](#8-verilog-generation)
-9. [Test Infrastructure](#9-test-infrastructure)
-10. [Handle Lifecycle & Fiber Mechanics](#10-handle-lifecycle--fiber-mechanics)
-11. [Naming Conventions](#11-naming-conventions)
-12. [Memory & Synthesis Attributes](#12-memory--synthesis-attributes)
-13. [Stream Protocol Conventions](#13-stream-protocol-conventions)
-14. [Design Rules Summary](#14-design-rules-summary)
-15. [Checklist for Adding a New Feature](#15-checklist-for-adding-a-new-feature)
+5. [Service Traits: Pipeline Stage Contracts](#5-service-traits-pipeline-stage-contracts)
+6. [Pipeline Stages as Named Areas](#6-pipeline-stages-as-named-areas)
+7. [TopIoExportPlugin: The Wiring Hub](#7-topioexportplugin-the-wiring-hub)
+8. [Params: Centralised Configuration](#8-params-centralised-configuration)
+9. [Top Component: Static IO Shell](#9-top-component-static-io-shell)
+10. [Verilog Generation](#10-verilog-generation)
+11. [Test Infrastructure](#11-test-infrastructure)
+12. [Handle Lifecycle and Fiber Mechanics](#12-handle-lifecycle-and-fiber-mechanics)
+13. [Naming Conventions](#13-naming-conventions)
+14. [Memory and Synthesis Attributes](#14-memory-and-synthesis-attributes)
+15. [Stream Protocol Conventions](#15-stream-protocol-conventions)
+16. [Optional Plugins: EdgeDetector and APB](#16-optional-plugins-edgedetector-and-apb)
+17. [Design Rules Summary](#17-design-rules-summary)
+18. [Checklist for Adding a New Feature](#18-checklist-for-adding-a-new-feature)
 
 ---
 
@@ -30,11 +33,12 @@ the Scala source modular, testable, and reusable.
 
 | Principle | Rationale |
 |-----------|-----------|
-| **Flat Verilog** | No module hierarchy — all signals are top-level peers. This makes vendor tool synthesis transparent, simplifies timing analysis, and eliminates cross-module optimisation barriers. |
-| **Plugin = Feature** | Each FiberPlugin encapsulates one logical feature. Plugins can be added/removed from the design by editing the plugin list in Params. |
+| **Flat Verilog** | No module hierarchy; all signals are top-level peers. Transparent synthesis, easy timing analysis, no cross-module optimisation barriers. |
+| **Plugin = Feature** | Each FiberPlugin encapsulates one logical feature. Features are added or removed by editing the plugin list in Params. |
 | **Core = Logic** | All RTL logic lives in stateless `object XxxCore.build()` methods. Cores are bus-agnostic and testable in isolation. |
 | **Fiber = Glue** | SpinalHDL's Fiber system resolves inter-plugin dependencies automatically, regardless of plugin list order. No manual ordering. |
-| **Handle = Contract** | `Handle[T]` is the inter-plugin communication primitive. Producer loads, consumer awaits. Type-safe, deadlock-detectable. |
+| **Handle = Contract** | `Handle[T]` is the inter-plugin communication primitive. Producer loads, consumer awaits. Type-safe and deadlock-detectable. |
+| **Trait = Stage Boundary** | Scala traits define the contract between pipeline stages. Plugins implement a trait to publish outputs; consume a trait to snap into the upstream stage. |
 
 ---
 
@@ -42,26 +46,41 @@ the Scala source modular, testable, and reusable.
 
 ```
 project-root/
-├── build.sbt                           # SBT build with SpinalHDL deps
+├── build.sbt
 ├── project/
-│   ├── build.properties                # SBT version
-│   └── plugins.sbt                     # SBT plugins (scalafmt, etc.)
+│   ├── build.properties              # sbt version pin; always commit
+│   └── plugins.sbt
 ├── src/
 │   ├── main/scala/<pkg>/
-│   │   ├── Params.scala                # Centralised parameters + plugin list
-│   │   ├── Top.scala                   # Top Component (static IO only)
-│   │   ├── GenVerilog.scala            # Verilog generation entry point
-│   │   ├── XxxPlugin.scala            # FiberPlugin wrapper per feature
-│   │   ├── XxxCore.scala              # Core logic (object + build method)
-│   │   └── TopIoExportPlugin.scala    # Single IO wiring point
+│   │   ├── Params.scala              # Parameters + plugin list
+│   │   ├── Top.scala                 # Top Component (static IO only)
+│   │   ├── GenVerilog.scala          # Verilog generation entry point
+│   │   ├── PipelineTraits.scala      # Stage-boundary service traits
+│   │   ├── TimerPlugin.scala         # Stage 1: signal source
+│   │   ├── TimerCore.scala
+│   │   ├── PassThroughPlugin.scala   # Stage 2 identity (swap with ScalePlugin)
+│   │   ├── ScalePlugin.scala         # Stage 2 alternate: right-shift scaling
+│   │   ├── ComparatorPlugin.scala    # Stage 3: threshold comparator
+│   │   ├── ComparatorCore.scala
+│   │   ├── HysteresisPlugin.scala    # Stage 3 alternate: dual-threshold latch
+│   │   ├── EdgeDetectorPlugin.scala  # Optional stage 4: edge detection
+│   │   ├── EdgeDetectorCore.scala    # Demonstrates named-Area pipeline stages
+│   │   ├── ApbMonitorPlugin.scala    # Optional side channel: APB3 register read-back
+│   │   └── TopIoExportPlugin.scala   # Single IO wiring point
 │   └── test/scala/<pkg>/
-│       ├── XxxCoreTest.scala           # Unit tests per core
-│       ├── ElaborationTest.scala       # Smoke test: full design elaborates
+│       ├── TimerCoreTest.scala
+│       ├── ComparatorCoreTest.scala
+│       ├── EdgeDetectorCoreTest.scala
+│       ├── ElaborationTest.scala
 │       └── testhelpers/
-│           └── XxxHarness.scala        # Simulation wrappers for cores
-├── rtl/                                # Generated Verilog output
-├── docs/                               # Design documentation
-└── simWorkspace/                       # Verilator simulation artifacts
+│           ├── TimerHarness.scala
+│           ├── ComparatorHarness.scala
+│           └── EdgeDetectorHarness.scala
+├── rtl/                              # Generated Verilog output
+├── docs/
+│   ├── ARCHITECTURE.md              # This file
+│   └── STYLE_GUIDE.md               # Full design rules and conventions
+└── simWorkspace/                     # Verilator artifacts; gitignored
 ```
 
 ---
@@ -70,294 +89,412 @@ project-root/
 
 A **Plugin** is a `case class` extending `FiberPlugin`. It does three things:
 
-1. **Declares Handles** — the plugin's published outputs and consumed inputs
-2. **Awaits dependencies** — blocks on Handles from other plugins via `host[OtherPlugin]`
-3. **Delegates to a Core** — calls `XxxCore.build()` with the resolved signals, then loads results into Handles
+1. **Declares Handles**: the plugin's published outputs and consumed inputs
+2. **Awaits dependencies**: blocks on Handles from other plugins via `host[Trait]`
+3. **Delegates to a Core**: calls `XxxCore.build()` with the resolved signals, then loads results into Handles
 
 ```scala
-case class CounterPlugin(width: Int = 8) extends FiberPlugin {
+case class TimerPlugin(width: Int = 8) extends FiberPlugin with SignalSource {
 
-  // Published output Handle
-  val countOut: Handle[UInt] = Handle[UInt]()
-
-  // Input Handle (loaded by TopIoExportPlugin)
-  val enableIn: Handle[Bool] = Handle[Bool]()
+  val countOut:  Handle[UInt] = Handle[UInt]()  // published output (concrete name)
+  val signalOut: Handle[UInt] = countOut        // SignalSource boundary; same Handle, two names
+  val enableIn:  Handle[Bool] = Handle[Bool]()  // loaded by TopIoExportPlugin
 
   val logic = during build new Area {
-    // Phase 1: await inputs from other plugins
-    val enable = enableIn.await
-
-    // Phase 2: delegate to core
-    val core = CounterCore.build(
-      periphName = "counter",
+    val enable = enableIn.await                  // await input
+    val core   = TimerCore.build(
+      periphName = "timer",
       width      = width,
       enable     = enable
     )
-
-    // Phase 3: load outputs for downstream consumers
-    countOut.load(core.count)
+    countOut.load(core.count)                    // publish output; signalOut resolves automatically
   }
 }
 ```
 
-### Key rules for Plugins:
-- **No RTL logic** in the plugin itself — only Handle plumbing
-- **One `during build` block** per plugin
-- **`host[OtherPlugin]`** to access other plugins' Handles (Fiber-resolved)
-- **`await`** blocks until the Handle is loaded — ordering is automatic
-- **`load`** publishes a signal — unblocks any awaiting consumers
-- **`case class`** (not `class`) for clean construction with parameters
+### Key rules for Plugins
+
+- **No RTL logic** in the plugin class body; only Handle declarations
+- **One `during build` block** per plugin (named `val logic`)
+- **`host[Trait]`** to access the upstream stage boundary (Fiber-resolved)
+- **`await`** blocks until the Handle is loaded; ordering is automatic
+- **`load`** publishes a signal; unblocks any awaiting consumers
+- **`case class`** for clean construction with parameters
 
 ---
 
 ## 4. The Core Pattern
 
-A **Core** is a stateless Scala `object` with a `def build()` method. The build method:
-
-1. Takes parameters and input signals as arguments
-2. Creates registers, combinational logic, memories
-3. Returns a plain Scala `case class Io` containing output signal references
+A **Core** is a stateless Scala `object` with a `def build()` method:
 
 ```scala
-object CounterCore {
-
-  // Return type: plain Scala case class — NOT a Bundle
-  case class Io(count: UInt)
+object TimerCore {
+  case class Io(count: UInt)   // plain Scala case class; NOT a Bundle
 
   def build(
-      periphName: String = "counter",
+      periphName: String = "timer",
       width:      Int    = 8,
-      enable:     Bool   = null    // signal reference, not a Bundle port
+      enable:     Bool   = null
   ): Io = {
     require(enable != null, "enable signal is required")
 
     val countReg = Reg(UInt(width bits)) init 0
     countReg.setName(s"${periphName}_countReg")
 
-    when(enable) {
-      countReg := countReg + 1
-    }
+    when(enable) { countReg := countReg + 1 }
 
     Io(count = countReg)
   }
 }
 ```
 
-### Key rules for Cores:
-- **`object`**, not `class` — stateless, all state is in the returned signals
-- **`case class Io`** return type — plain Scala, NOT `extends Bundle`
-- **`periphName` prefix** on all registers and memories — prevents name collisions in flat Verilog
-- **`require()` guards** validate inputs at elaboration time
-- **Bus-agnostic** — cores take raw signals (`Bool`, `UInt`, `Stream[T]`), not IO bundles
-- **No Component hierarchy** — `build()` runs inside the calling Component's scope
-- **Testable in isolation** via a Harness wrapper (see Section 9)
+### Key rules for Cores
+
+- **`object`**: stateless; all state lives in the returned hardware nodes
+- **`case class Io`**: plain Scala, NOT `extends Bundle`
+- **`periphName` prefix** on all registers: prevents name collisions in flat Verilog
+- **`require()` guards**: validate inputs at elaboration time, before hardware is created
+- **Bus-agnostic**: takes raw signals, not bus-specific bundles
+- **No Component instantiation** inside `build()`
 
 ### Why `case class Io` instead of `Bundle`?
 
-Bundles in SpinalHDL create hardware direction semantics (`in`/`out`). The Core pattern
-doesn't need this — it returns signal *references* that the Plugin wires up. Using a plain
-Scala case class:
-- Avoids accidental direction inference issues
-- Makes it clear this is a data container, not hardware
-- Can hold any type (Streams, Bools, Ints, even non-hardware data)
+Bundles carry direction semantics (`in`/`out`). A Core returns signal *references*, not
+a port declaration. A plain case class cannot accidentally cause direction-mismatch errors
+and can hold any Scala or hardware type.
 
 ---
 
-## 5. TopIoExportPlugin — The Wiring Hub
+## 5. Service Traits: Pipeline Stage Contracts
 
-The **TopIoExportPlugin** is the single point where plugin Handles connect to top-level IO pads.
-It follows a strict **two-phase pattern** to prevent Fiber deadlocks:
+A **service trait** is a zero-hardware Scala trait that defines the output contract for one
+pipeline stage. Plugins implement a trait to declare what they produce; plugins consume a
+trait to declare what they need upstream. Neither side depends on a specific implementation.
+
+```scala
+// PipelineTraits.scala: all stage boundaries in one file
+trait SignalSource    { val signalOut:    Handle[UInt] }
+trait ProcessedSignal { val processedOut: Handle[UInt] }
+trait ThresholdResult { val aboveFlag:    Handle[Bool] }
+trait EdgeResult      { val risingEdge:   Handle[Bool]
+                        val fallingEdge:  Handle[Bool] }
+```
+
+### Producer side: implementing a trait
+
+```scala
+case class ComparatorPlugin(threshold: Int = 128)
+    extends FiberPlugin with ThresholdResult {
+
+  val aboveFlag: Handle[Bool] = Handle[Bool]()   // satisfies ThresholdResult
+
+  val logic = during build new Area {
+    val countVal = host[ProcessedSignal].processedOut.await  // consumes upstream trait
+    val core = ComparatorCore.build(...)
+    aboveFlag.load(core.above)
+  }
+}
+```
+
+### Consumer side: consuming a trait
+
+```scala
+case class EdgeDetectorPlugin() extends FiberPlugin with EdgeResult {
+
+  val risingEdge:  Handle[Bool] = Handle[Bool]()
+  val fallingEdge: Handle[Bool] = Handle[Bool]()
+
+  val logic = during build new Area {
+    val above = host[ThresholdResult].aboveFlag.await  // works with any ThresholdResult impl
+    val core  = EdgeDetectorCore.build(periphName = "edgeDetector", input = above)
+    risingEdge.load(core.rising)
+    fallingEdge.load(core.falling)
+  }
+}
+```
+
+### Swapping a stage
+
+Because both sides depend only on the trait, swapping the Stage 3 implementation is a
+one-line change in `Params.plugins`:
+
+```scala
+// Before
+ComparatorPlugin(threshold = threshold)
+
+// After: no other file changes needed
+HysteresisPlugin(loThreshold = 64, hiThreshold = 192)
+```
+
+Both plugins implement `ThresholdResult`. Anything downstream (`EdgeDetectorPlugin`,
+`ApbMonitorPlugin`, `TopIoExportPlugin`) continues to compile and work unchanged.
+
+### When to define a new trait
+
+Define a trait when a stage boundary is a stable, named interface that more than one plugin
+might implement or consume. Do not trait-wrap every internal signal; one trait per meaningful
+pipeline stage boundary is enough.
+
+---
+
+## 6. Pipeline Stages as Named Areas
+
+`Area` is SpinalHDL's mechanism for grouping related signals without creating a Verilog
+module boundary. Each CPU pipeline stage in large SpinalHDL designs is a named Area.
+The same pattern applies to any multi-stage Core.
+
+**Named Areas do two things:**
+1. They prefix contained signal names with the Area's name in waveforms, aiding debug.
+2. They make the pipeline stages explicit and self-documenting in the Scala source.
+
+`EdgeDetectorCore` demonstrates a 2-register pipeline using named Areas:
+
+```scala
+object EdgeDetectorCore {
+  case class Io(rising: Bool, falling: Bool)
+
+  def build(periphName: String = "edgeDetector", input: Bool = null): Io = {
+    require(input != null, "input signal is required")
+
+    // Stage 1: capture previous value
+    val prevStage = new Area {
+      val prev = RegNext(input) init False
+      prev.setName(s"${periphName}_prev")
+    }
+    // Waveform: prevStage_prev
+
+    // Stage 2: detect and register edge events
+    val edgeStage = new Area {
+      val rising  = RegNext(input && !prevStage.prev) init False
+      val falling = RegNext(!input && prevStage.prev) init False
+      rising.setName(s"${periphName}_rising")
+      falling.setName(s"${periphName}_falling")
+    }
+    // Waveforms: edgeStage_rising, edgeStage_falling
+
+    Io(rising = edgeStage.rising, falling = edgeStage.falling)
+  }
+}
+```
+
+### Pipeline timing diagram
+
+```
+Clock    --+ +--+ +--+ +--+ +--
+           +-+  +-+  +-+  +-+
+
+input    ----------+
+                   +-----------
+
+prevStage.prev       ----------+
+                               +-
+
+edgeStage.rising          -----+
+(output valid)                 +-
+```
+
+- **Latency:** 1 clock cycle from input change to output pulse
+- **Pulse width:** exactly 1 cycle
+- Both registers update on the same rising edge. The detection `input && !prev` uses the
+  pre-edge value of `prev`, so the pulse fires at the same edge that `prev` latches the
+  new input value.
+
+### Extending to deeper pipelines
+
+The pattern scales to N stages. Each stage is a named Area that reads from the previous:
+
+```scala
+val fetchStage = new Area {
+  val data  = RegNext(input)        init 0
+  val valid = RegNext(inputValid)   init False
+}
+
+val executeStage = new Area {
+  val result = RegNext(process(fetchStage.data))  init 0
+  val valid  = RegNext(fetchStage.valid)           init False
+}
+
+val writebackStage = new Area {
+  val output = RegNext(executeStage.result)  init 0
+  val valid  = RegNext(executeStage.valid)   init False
+}
+```
+
+Stage names appear in waveforms as `fetchStage_data`, `executeStage_result`,
+`writebackStage_output`. Document pipeline latency in the Core scaladoc so
+simulation tests wait the correct number of cycles.
+
+---
+
+## 7. TopIoExportPlugin: The Wiring Hub
+
+The **TopIoExportPlugin** is the single point where plugin Handles connect to top-level
+IO pads. It follows a strict **two-phase pattern**:
 
 ```scala
 case class TopIoExportPlugin() extends FiberPlugin {
   val logic = during build new Area {
     val top = Component.current.asInstanceOf[MyTop]
 
-    // ══════════════════════════════════════════════
     // Phase 1: LOAD input Handles (non-blocking)
-    //   Feeds pad signals into plugins.
-    //   These complete immediately — no blocking.
-    // ══════════════════════════════════════════════
-    Try(host[CounterPlugin]).toOption.foreach { counter =>
-      counter.enableIn.load(top.io.enable)
+    Try(host[TimerPlugin]).toOption.foreach { timer =>
+      timer.enableIn.load(top.io.enable)
     }
 
-    // ══════════════════════════════════════════════
     // Phase 2: AWAIT output Handles (blocking)
-    //   Wires plugin outputs to pads.
-    //   These block until the producer plugin loads.
-    // ══════════════════════════════════════════════
-    Try(host[CounterPlugin]).toOption match {
-      case Some(counter) =>
-        top.io.count := counter.countOut.await
+    Try(host[TimerPlugin]).toOption match {
+      case Some(timer) => top.io.count    := timer.countOut.await
+      case None        => top.io.count    := 0
+    }
+
+    Try(host[ThresholdResult]).toOption match {
+      case Some(thresh) => top.io.aboveFlag := thresh.aboveFlag.await
+      case None         => top.io.aboveFlag := False
+    }
+
+    Try(host[EdgeResult]).toOption match {
+      case Some(edge) =>
+        top.io.risingEdge  := edge.risingEdge.await
+        top.io.fallingEdge := edge.fallingEdge.await
       case None =>
-        top.io.count := 0  // safe default when plugin absent
+        top.io.risingEdge  := False
+        top.io.fallingEdge := False
+    }
+
+    Try(host[ApbMonitorPlugin]).toOption match {
+      case None =>
+        top.io.apb_PREADY  := True
+        top.io.apb_PRDATA  := B(0, 32 bits)
+        top.io.apb_PSLVERR := False
+      case Some(_) => // ApbMonitorPlugin drives these directly
     }
   }
 }
 ```
 
-### Two-Phase Rule (Critical)
+Note that `host[ThresholdResult]` and `host[EdgeResult]` consume service traits, not
+concrete plugin types. Swapping `ComparatorPlugin` for `HysteresisPlugin` requires no
+change here.
+
+`TimerPlugin` is still accessed concretely because `TopIoExportPlugin` needs to load its
+`enableIn` input Handle, which is specific to the timer implementation and not part of any
+upstream-facing trait.
+
+### Two-Phase Rule
 
 | Phase | Operation | Blocking? | Purpose |
 |-------|-----------|-----------|---------|
-| 1 | `handle.load(padSignal)` | No | Feed pad inputs into plugins |
-| 2 | `handle.await` | Yes | Read plugin outputs to pads |
+| 1 | `handle.load(padSignal)` | No | Feed pad inputs to plugins |
+| 2 | `handle.await` | Yes | Read plugin outputs and drive pads |
 
-**Why?** If Phase 2 ran first, TopIoExportPlugin would block awaiting a plugin's output.
-But that plugin is blocked awaiting its input Handle — which TopIoExportPlugin hasn't loaded
-yet. Deadlock. Loads always go first.
-
-### Try/toOption Pattern
-
-```scala
-Try(host[SomePlugin]).toOption.foreach { plugin => ... }
-Try(host[SomePlugin]).toOption match {
-  case Some(plugin) => // wire outputs
-  case None         => // safe defaults
-}
-```
-
-This makes each wiring section safe when a plugin is absent. You can remove plugins from
-the Params list without touching TopIoExportPlugin.
+**Why?** Phase 2 blocks. If it ran before Phase 1, `TopIoExportPlugin` would block
+waiting for a plugin's output, but that plugin is blocked waiting for its input Handle,
+which Phase 1 has not loaded yet. Deadlock. Loads always go first.
 
 ---
 
-## 6. Params — Centralised Configuration
-
-All hardware parameters live in a single `case class Params`. The plugin list is a method
-that constructs plugins with the appropriate parameters:
+## 8. Params: Centralised Configuration
 
 ```scala
 case class Params(
-    sysClkHz:     HertzNumber = 100 MHz,
-    counterWidth: Int         = 8,
-    threshold:    Int         = 128
+    sysClkHz:   HertzNumber = 100 MHz,
+    timerWidth: Int         = 8,
+    threshold:  Int         = 128
 ) {
   def plugins: Seq[FiberPlugin] = Seq(
-    CounterPlugin(width = counterWidth),
-    ThresholdPlugin(threshold = threshold),
+    TimerPlugin(width = timerWidth),           // Stage 1: signal source
+    PassThroughPlugin(),                        // Stage 2: swap with ScalePlugin(shift = 2)
+    ComparatorPlugin(threshold = threshold),    // Stage 3: swap with HysteresisPlugin(lo, hi)
     TopIoExportPlugin()
+    // Optional stages:
+    // EdgeDetectorPlugin(),
+    // ApbMonitorPlugin(),
   )
 }
 ```
 
-### Rules:
-- **Plugin list order doesn't matter** — Fiber resolves all dependencies
-- **`def plugins`** (not `val`) — fresh instances each time (important for re-elaboration in tests)
-- **TopIoExportPlugin always last by convention** (cosmetic, not required)
-- **All numeric constants** pass through Params — no magic numbers in cores
+- **`def plugins`** (not `val`): fresh instances on every call; required for test re-elaboration
+- **Plugin list order does not matter**: Fiber resolves all dependencies
+- **All constants pass through Params**: no magic numbers in Cores or Plugins
+- **Stage 2 and Stage 3 are labelled swap points**: comment marks what the alternative is
 
 ---
 
-## 7. Top Component — Static IO Shell
-
-The Top Component is the **one real Component** in the design. It has:
-
-1. **Static `val io = new Bundle { ... }`** — all pad-level ports declared here
-2. **`setName()` calls** — flatten Verilog port names (removes `io_` prefix)
-3. **`PluginHost` construction** — assembles all plugins from Params
+## 9. Top Component: Static IO Shell
 
 ```scala
 class MyTop(params: Params = Params()) extends Component {
   val io = new Bundle {
-    val enable    = in  Bool()
-    val count     = out UInt(params.counterWidth bits)
-    val aboveFlag = out Bool()
+    val enable      = in  Bool()
+    val count       = out UInt(params.timerWidth bits)
+    val aboveFlag   = out Bool()
+    val risingEdge  = out Bool()
+    val fallingEdge = out Bool()
+    val apb_PADDR   = in  UInt(8 bits)
+    // ... full APB3 interface
   }
 
-  // Flatten port names for clean Verilog
   io.enable.setName("enable")
   io.count.setName("count")
-  io.aboveFlag.setName("above_flag")
+  // ... setName for every port
 
-  // All logic is in plugins
   val host = new PluginHost
   host.asHostOf(params.plugins)
 }
 ```
 
-### Rules:
-- **No logic** in Top — only IO declarations and PluginHost
-- **`setName()`** on every IO for vendor-tool-friendly Verilog port names
-- **BlackBoxes and CDCs** are the only other allowed Components (e.g., `StreamFifoCC`)
+**Rules:**
+- No logic in Top; only IO declarations and PluginHost
+- `setName()` on every IO port; required for clean Verilog port names
+- Optional plugin ports are always declared; safe defaults are driven when the plugin is absent
 
 ---
 
-## 8. Verilog Generation
+## 10. Verilog Generation
 
-```scala
-object GenVerilog extends App {
-  val report = SpinalConfig(
-    targetDirectory = "rtl",
-    defaultClockDomainFrequency = FixedFrequency(100 MHz),
-    defaultConfigForClockDomains = ClockDomainConfig(
-      resetKind        = ASYNC,
-      resetActiveLevel = HIGH
-    )
-  ).generateVerilog {
-    val top = new MyTop(Params())
-    // Optional: rename clock/reset to match board
-    // top.clockDomain.clock.setName("sys_clk")
-    // top.clockDomain.reset.setName("sys_rst")
-    top
-  }
-  report.printPruned()
-}
+```bash
+sbt "runMain mydesign.GenVerilog"   # generates rtl/MyTop.v
 ```
 
-Run: `sbt "runMain mydesign.GenVerilog"`
-
-Output lands in `rtl/MyTop.v`.
+`GenVerilog.scala` calls `report.printPruned()` after generation. **Pruned signals are a
+warning sign**: they usually mean a missing connection, not an optimisation.
 
 ---
 
-## 9. Test Infrastructure
+## 11. Test Infrastructure
 
 ### Test Harness Pattern
 
-Cores can't be simulated directly — they run inside a Component's scope.
-A **Harness** wraps the core in a minimal Component with sim-friendly IO:
+Cores are `object`s; they have no Component boundary for Verilator to target. A Harness
+wraps the Core in a minimal Component:
 
 ```scala
-class CounterHarness(width: Int = 8) extends Component {
+class TimerHarness(width: Int = 8) extends Component {
   val io = new Bundle {
     val enable = in  Bool()
     val count  = out UInt(width bits)
   }
-
-  val core = CounterCore.build(
-    periphName = "counter",
-    width      = width,
-    enable     = io.enable
-  )
-
+  val core = TimerCore.build(periphName = "timer", width = width, enable = io.enable)
   io.count := core.count
 }
 ```
 
 ### Test Pattern
 
-Tests use ScalaTest `AnyFunSuite` + SpinalHDL simulation:
-
 ```scala
-class CounterCoreTest extends AnyFunSuite {
-  val width = 8
-
+class TimerCoreTest extends AnyFunSuite {
   def compile() = SimConfig
-    .withWave                                        // VCD waveform dump
-    .workspacePath("simWorkspace/CounterCoreTest")   // per-test output dir
-    .compile(new CounterHarness(width = width))      // compile once
+    .withWave
+    .workspacePath("simWorkspace/TimerCoreTest")
+    .compile(new TimerHarness(width = 8))
 
-  test("Counter increments when enabled") {
+  test("Timer increments when enabled") {
     compile().doSim("increment") { dut =>
       dut.clockDomain.forkStimulus(period = 10)
-      dut.io.enable #= false
-      dut.clockDomain.waitSampling(3)
-
       dut.io.enable #= true
       for (i <- 1 to 10) {
         dut.clockDomain.waitSampling()
+        sleep(1)
         assert(dut.io.count.toInt == i,
           s"Cycle $i: expected $i, got ${dut.io.count.toInt}")
       }
@@ -368,229 +505,246 @@ class CounterCoreTest extends AnyFunSuite {
 
 ### Test Types
 
-| Test Type | File | Purpose |
-|-----------|------|---------|
-| **Elaboration** | `ElaborationTest.scala` | Smoke test — full design generates Verilog |
+| Type | File | Purpose |
+|------|------|---------|
+| **Elaboration** | `ElaborationTest.scala` | Smoke test: full design generates Verilog for all plugin combinations |
 | **Core unit** | `XxxCoreTest.scala` | Functional tests via Verilator simulation |
-| **Chain/integration** | `XxxChainTest.scala` | Multi-core harness testing pipeline stages |
-
-### Test Conventions:
-- **`compile()` method** — reusable SimConfig for all tests in the suite
-- **`withWave`** — always dump VCD for post-mortem debugging
-- **`workspacePath`** — unique per test class (Verilator builds)
-- **`doSim("name")`** — named simulation runs within a test
-- **`clockDomain.forkStimulus(period = 10)`** — standard clock setup
-- **`#=`** — SpinalHDL sim signal assignment operator
-- **`waitSampling(n)`** — advance n clock edges
-- **Fork blocks** for parallel stimulus/collection
-- **`Test / parallelExecution := false`** in build.sbt to avoid Verilator conflicts
+| **Integration** | `XxxChainTest.scala` | Multi-core pipeline testing |
 
 ---
 
-## 10. Handle Lifecycle & Fiber Mechanics
-
-### Handle States
+## 12. Handle Lifecycle and Fiber Mechanics
 
 ```
-  Created         Loaded          Awaited
-  ─────────►  ─────────────►  ──────────►
-  Handle[T]()    handle.load(x)   handle.await
-  (empty)        (signal bound)   (returns signal)
+Handle[T]()    ->   handle.load(signal)   ->   handle.await
+(empty)             (signal bound)              (returns signal)
 ```
 
-### Dependency Resolution
+### Dependency resolution in this design
 
 ```
-  CounterPlugin                    ThresholdPlugin
-  ┌─────────────────────┐         ┌─────────────────────┐
-  │ enableIn.await ◄────┼────┐    │ host[CounterPlugin]  │
-  │   ↓                 │    │    │   .countOut.await ◄──┼─── blocks until
-  │ CounterCore.build() │    │    │     ↓                │    countOut loaded
-  │   ↓                 │    │    │ ThresholdCore.build() │
-  │ countOut.load(───)──┼────┼───►│     ↓                │
-  └─────────────────────┘    │    │ aboveFlag.load(───)  │
-                             │    └─────────────────────┘
-  TopIoExportPlugin          │
-  ┌─────────────────────┐    │
-  │ Phase 1: loads ─────┼────┘   (non-blocking: loads enableIn)
-  │ Phase 2: awaits     │         (blocking: awaits countOut, aboveFlag)
-  └─────────────────────┘
+  TimerPlugin                         PassThroughPlugin / ScalePlugin
+  +----------------------+           +----------------------+
+  | enableIn.await <-----+----+      | host[SignalSource]    |
+  |  v                   |    |      |   .signalOut.await <--+---- blocks
+  | TimerCore.build()    |    |      |  v                    |
+  |  v                   |    |      | processedOut.load() --+---->
+  | countOut.load() -----+----+---->  +----------------------+    |
+  | signalOut alias      |           (SignalSource boundary)       |
+  +----------------------+                                         |
+                                    ComparatorPlugin / HysteresisPlugin
+  TopIoExportPlugin                 +----------------------+       |
+  +----------------------+    +---> | host[ProcessedSignal] |       |
+  | Phase 1: load -------+----+     |   .processedOut.await |       |
+  | Phase 2: await ------+----+     |  v                    |       |
+  |   host[ThresholdResult]   |     | aboveFlag.load() ----+---->  |
+  |   host[EdgeResult]   |    |     +----------------------+    |   |
+  +----------------------+    |     (ThresholdResult boundary)   |   |
+                              |                                   |   |
+                              |     EdgeDetectorPlugin            |   |
+                              +---> +----------------------+      |   |
+                                    | host[ThresholdResult] |      |   |
+                                    |   .aboveFlag.await <--+------+   |
+                                    |  v                    |          |
+                                    | EdgeDetectorCore.build|          |
+                                    |  v                    |          |
+                                    | risingEdge.load()     |          |
+                                    | fallingEdge.load() ---+--------->|
+                                    +----------------------+
 ```
-
-Fiber automatically determines execution order from the `load`/`await` graph.
-No manual ordering required.
 
 ### Common Deadlock Causes
 
 | Cause | Symptom | Fix |
 |-------|---------|-----|
-| Circular await | Fiber timeout | Break cycle — one plugin must load without awaiting the other |
-| Phase 2 before Phase 1 in TopIoExport | Fiber timeout | Always load inputs first, then await outputs |
-| Missing `load()` call | Fiber timeout (consumer blocks forever) | Check that every published Handle gets loaded |
+| Missing `load()` | Fiber timeout | Ensure the producing plugin is in `Params.plugins` |
+| Phase 2 before Phase 1 | Fiber timeout | Always load inputs first, then await outputs |
+| Circular await | Fiber timeout | Break cycle; one plugin must load without awaiting |
 
 ---
 
-## 11. Naming Conventions
+## 13. Naming Conventions
 
 | Item | Convention | Example |
 |------|-----------|---------|
-| Registers | `${periphName}_xxxReg` | `counter_countReg` |
-| Memories | `${periphName}_xxxBuffer` | `green_ext_lineBuffer` |
-| Plugin class | `XxxPlugin` (PascalCase) | `CounterPlugin` |
-| Core object | `XxxCore` (PascalCase) | `CounterCore` |
-| Plugin package | feature-based grouping | `mydesign.processing` |
-| IO ports | `snake_case` via `setName()` | `above_flag` |
-| Test class | `XxxCoreTest` | `CounterCoreTest` |
-| Harness | `XxxHarness` | `CounterHarness` |
+| Registers | `${periphName}_xxxReg` | `timer_countReg` |
+| Memories | `${periphName}_xxxBuffer` | `video_lineBuffer` |
+| Pipeline stage signals | `${periphName}_xxx` inside named Area | `edgeDetector_rising` |
+| Plugin class | `XxxPlugin` | `TimerPlugin` |
+| Core object | `XxxCore` | `TimerCore` |
+| IO ports | `snake_case` via `setName()` | `above_flag`, `rising_edge` |
+| Test class | `XxxCoreTest` | `TimerCoreTest` |
+| Harness | `XxxHarness` | `TimerHarness` |
 
 ### Why `periphName` prefix?
 
-In flat Verilog, all registers are top-level. Without prefixes, `countReg` from two
-different cores would collide. The `periphName` parameter ensures unique names:
-`counter_countReg`, `timer_countReg`.
+In flat Verilog, all registers live in one namespace. Without prefixes, `countReg` from
+two different cores would collide. The prefix ensures uniqueness:
+`timer_countReg`, `comparator_aboveReg`, `edgeDetector_rising`.
 
 ---
 
-## 12. Memory & Synthesis Attributes
-
-### Block RAM with Attributes
-
-When using `Mem()` for block RAM, add synthesis attributes to control inference:
+## 14. Memory and Synthesis Attributes
 
 ```scala
 val lineBuffer = Mem(UInt(8 bits), 1920)
 lineBuffer.setName(s"${periphName}_lineBuffer")
-lineBuffer.addAttribute("syn_ramstyle",  "block_ram")   // force BRAM inference
-lineBuffer.addAttribute("syn_ramdecomp", "area")        // minimise block count
+lineBuffer.addAttribute("syn_ramstyle", "block_ram")
 ```
 
-### Attribute Reference
-
-| Attribute | Values | Effect |
-|-----------|--------|--------|
-| `syn_ramstyle` | `"block_ram"`, `"distributed"` | Force BRAM or LUT RAM inference |
-| `syn_ramdecomp` | `"area"`, `"speed"` | Optimise for block count vs. throughput |
-| `ram_style` | `"distributed"` | SpinalHDL's built-in distributed RAM hint |
-
-### readSync vs readAsync
-
-- **`readSync`** — registered read, maps to BRAM. 1-cycle latency. **Preferred.**
-- **`readAsync`** — combinational read, maps to LUT/distributed RAM. Higher timing pressure.
-
-```scala
-// Block RAM (readSync — 1 cycle latency, needs pipeline alignment)
-val rdData = mem.readSync(address, enable = fireSignal)
-
-// Distributed/LUT RAM (readAsync — combinational, no latency)
-val rdData = mem.readAsync(address)
-```
+- **`readSync`**: registered read, maps to BRAM. 1-cycle latency. Preferred.
+- **`readAsync`**: combinational read, maps to LUT/distributed RAM.
 
 ---
 
-## 13. Stream Protocol Conventions
+## 15. Stream Protocol Conventions
 
-### Monitoring Taps (No Back-Pressure)
-
-When a core observes a stream without consuming it:
+### Monitoring Taps
 
 ```scala
-// The core snoops fire + payload without driving ready
-val pixFire    = pixelIn.fire      // observe transaction
-val pixPayload = pixelIn.payload   // observe data
-// ready is driven by the actual consumer, not this core
+val fired   = pixelStream.fire     // observe without touching ready
+val payload = pixelStream.payload
 ```
 
-### Sink Pattern (When Plugin is Absent)
-
-When a stream has no consumer, sink it to prevent deadlock:
+### Sink Pattern (absent consumer)
 
 ```scala
 Try(host[ConsumerPlugin]).toOption match {
-  case Some(consumer) => // consumer handles the stream
-  case None =>
-    someStream.ready := True  // sink: accept and discard
+  case Some(_) => // consumer drives ready
+  case None    => someStream.ready := True  // sink
 }
 ```
 
-### Frame/Line Protocol
+---
 
-Pixel streams carry framing sideband signals:
+## 16. Optional Plugins: EdgeDetector and APB
+
+### EdgeDetectorPlugin
+
+Detects rising and falling edges on any `ThresholdResult` output.
+Add to `Params.plugins` when edge events are needed:
 
 ```scala
-case class MyPixel() extends Bundle {
-  val data       = UInt(8 bits)
-  val frameStart = Bool()     // pulse on first pixel of frame
-  val frameEnd   = Bool()     // pulse on last pixel of frame
-  val lineStart  = Bool()     // pulse on first pixel of line
-  val lineEnd    = Bool()     // pulse on last pixel of line
-}
+def plugins = Seq(
+  TimerPlugin(width = timerWidth),
+  PassThroughPlugin(),
+  ComparatorPlugin(threshold = threshold),  // or HysteresisPlugin(...)
+  EdgeDetectorPlugin(),                     // add this
+  TopIoExportPlugin()
+)
+```
+
+`EdgeDetectorPlugin` implements `EdgeResult` and consumes `ThresholdResult`. It works
+unchanged regardless of whether `ComparatorPlugin` or `HysteresisPlugin` is in Stage 3.
+
+Outputs: `rising_edge`, `falling_edge`. Latency: 1 cycle from `aboveFlag` transition.
+
+### ApbMonitorPlugin
+
+Exposes timer and comparator state as APB3-accessible read registers.
+Add when an APB3 master needs to read peripheral status:
+
+```scala
+def plugins = Seq(
+  TimerPlugin(width = timerWidth),
+  PassThroughPlugin(),
+  HysteresisPlugin(loThreshold = 64, hiThreshold = 192),  // or ComparatorPlugin(...)
+  ApbMonitorPlugin(),                                       // add this
+  TopIoExportPlugin()
+)
+```
+
+`ApbMonitorPlugin` consumes `ThresholdResult` via `host[ThresholdResult]`, so it works
+with either Stage 3 implementation.
+
+Register map:
+
+| Address | Content | Access |
+|---------|---------|--------|
+| `0x00` | Timer count (zero-extended to 32 bits) | Read |
+| `0x04` | Threshold result above flag (bit 0) | Read |
+
+---
+
+## 17. Design Rules Summary
+
+```
++--------------------------------------------------------------+
+|  Design Rules                                                |
++--------------------------------------------------------------+
+|                                                              |
+|  Components only at edges:                                   |
+|    - MyTop              (the one real Component)             |
+|    - BlackBoxes         (vendor hard-IP, PLLs, etc.)         |
+|    - StreamFifoCC       (CDC primitive)                      |
+|                                                              |
+|  Everything else is FiberPlugin + object XxxCore.build():    |
+|    - Core logic in stateless object XxxCore                  |
+|    - Plugin wraps core, publishes Handle[T]                  |
+|    - Plain case class Io; NOT extends Bundle                 |
+|    - No Component hierarchy in the flat design               |
+|                                                              |
+|  Service traits define stage boundaries:                     |
+|    - One trait per meaningful pipeline stage output          |
+|    - Plugin implements a trait to publish; consumes to snap  |
+|    - host[Trait] not host[ConcretePlugin] in consumers       |
+|    - TopIoExportPlugin consumes traits, not concrete types   |
+|                                                              |
+|  Pipeline stages:                                            |
+|    - Use named Areas inside Core.build()                     |
+|    - Each stage: new Area { val reg = RegNext(...) init x }  |
+|    - Stage names prefix waveform signal names                |
+|    - Document latency in Core scaladoc                       |
+|                                                              |
+|  Cross-plugin wiring:                                        |
+|    - Handles resolve via Fiber (order-independent)           |
+|    - TopIoExportPlugin is the single IO wiring point         |
+|    - Two-phase: load inputs first, then await outputs        |
+|    - Try(host[X]).toOption for all optional plugins          |
+|    - Case None must drive safe defaults                      |
+|                                                              |
+|  Naming:                                                     |
+|    - periphName prefix on all registers and memories         |
+|    - setName() on top IO for clean Verilog port names        |
+|                                                              |
+|  Testing:                                                    |
+|    - Cores tested in isolation via Harness wrappers          |
+|    - ElaborationTest validates the full Fiber graph          |
+|    - parallelExecution := false (Verilator builds conflict)  |
+|                                                              |
++--------------------------------------------------------------+
 ```
 
 ---
 
-## 14. Design Rules Summary
+## 18. Checklist for Adding a New Feature
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Design Rules                                                │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Components only at edges:                                   │
-│    • MyTop              (the one real Component)             │
-│    • BlackBoxes         (vendor hard-IP)                     │
-│    • StreamFifoCC       (CDC primitive)                      │
-│                                                              │
-│  Everything else is a FiberPlugin + def build():             │
-│    • Core logic lives in object XxxCore.build()              │
-│    • Plugin wraps core, publishes Handle[T]                  │
-│    • Plain case class Io (NOT extends Bundle) for returns    │
-│    • No Component hierarchy — all signals are toplevel peers │
-│                                                              │
-│  Cross-plugin wiring:                                        │
-│    • Handles resolve via Fiber (order-independent)           │
-│    • TopIoExportPlugin is the single IO wiring point         │
-│    • Internal: producer loads Handle, consumer awaits        │
-│    • Pad inputs: TopIoExport loads, plugin awaits            │
-│    • Pad outputs: plugin loads, TopIoExport awaits           │
-│    • Two-phase in TopIoExport: load inputs first, then await │
-│                                                              │
-│  Naming:                                                     │
-│    • periphName prefix on all internal registers/memories    │
-│    • setName() on top IO for clean Verilog port names        │
-│    • Internal reg names must not collide with IO port names  │
-│                                                              │
-│  Swappability:                                               │
-│    • Params.plugins defines the active plugin list           │
-│    • Plugins can be added/removed without touching others    │
-│    • Try(host[X]).toOption makes wiring safe for absent      │
-│      plugins                                                 │
-│                                                              │
-│  Testing:                                                    │
-│    • Cores tested in isolation via Harness wrappers          │
-│    • Elaboration test validates full Fiber graph             │
-│    • No parallel test execution (Verilator builds conflict)  │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 15. Checklist for Adding a New Feature
-
-When adding a new feature (e.g., a UART, a filter, a state machine):
-
-- [ ] **Create `XxxCore.scala`** — `object XxxCore` with `case class Io` and `def build()`
-- [ ] **Create `XxxPlugin.scala`** — `case class XxxPlugin` extending `FiberPlugin`
+- [ ] **Create `XxxCore.scala`**: `object XxxCore` with `case class Io` and `def build()`
+  - `periphName` as first parameter
+  - `require()` guards for all signal arguments
+  - `setName(s"${periphName}_xxxReg")` on every register
+  - Named Areas for each pipeline stage (if multi-stage)
+  - Scaladoc noting pipeline latency in cycles
+- [ ] **Create `XxxPlugin.scala`**: `case class XxxPlugin extends FiberPlugin`
+  - Implement the appropriate service trait (e.g. `with ThresholdResult`)
+  - Consume the upstream service trait via `host[UpstreamTrait]`
   - Declare all published Handles
   - In `during build`: await inputs, call `XxxCore.build()`, load outputs
-- [ ] **Add to `Params.plugins`** — include the new plugin in the Seq
-- [ ] **Wire in `TopIoExportPlugin`** — Phase 1: load inputs, Phase 2: await outputs
-  - Use `Try(host[XxxPlugin]).toOption` for safe wiring
-  - Provide defaults in `case None =>` branch
-- [ ] **Add IO to `MyTop.io`** — if the feature has external pad connections
-  - Add `setName()` call for clean Verilog names
-- [ ] **Create `XxxHarness.scala`** — test wrapper Component in `testhelpers/`
-- [ ] **Create `XxxCoreTest.scala`** — unit tests with `compile().doSim()`
-- [ ] **Update `ElaborationTest`** — ensure it still passes (usually automatic)
-- [ ] **Run `sbt test`** — all tests must pass
-- [ ] **Run `sbt "runMain mydesign.GenVerilog"`** — verify clean Verilog output
+- [ ] **Add or update `PipelineTraits.scala`** if a new stage boundary trait is needed
+- [ ] **Add to `Params.plugins`** (or document as optional)
+- [ ] **Wire in `TopIoExportPlugin`**
+  - Phase 1: load inputs
+  - Phase 2: await outputs via `host[Trait]`, use `Try(host[X]).toOption`
+  - `case None` drives safe defaults
+- [ ] **Add IO to `MyTop.io`** (if external ports needed)
+  - `setName()` for every new port
+- [ ] **Create `XxxHarness.scala`** in `testhelpers/`
+- [ ] **Create `XxxCoreTest.scala`** with mandatory test cases:
+  - Happy path
+  - Boundary values
+  - Reset behavior
+  - Pipeline latency (wait N cycles after input before asserting output)
+- [ ] **Update `ElaborationTest`** with new plugin configurations
+- [ ] **Run `sbt test`**: all tests must pass
+- [ ] **Run `sbt "runMain mydesign.GenVerilog"`**: verify clean Verilog output
+- [ ] **Update `docs/ARCHITECTURE.md`** with the new feature
