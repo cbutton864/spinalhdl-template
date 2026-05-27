@@ -14,7 +14,7 @@ object GenVerilog extends App {
       resetActiveLevel = HIGH
     )
   ).generateVerilog {
-    val top = new MyTop(Params(globalHierarchy = Some(false)))
+    val top = new MyTop(Params.productionFlat)
     top
   }
 
@@ -29,7 +29,23 @@ object GenVerilog extends App {
       resetActiveLevel = HIGH
     )
   ).generateVerilog {
-    val top = new MyTop(Params(globalHierarchy = Some(true)))
+    val top = new MyTop(Params.debugHierarchical)
+    top
+  }
+
+  // ── Build 3: COMPOSITE SUBSYSTEM Build ───────────────────────────
+  println("Generating COMPOSITE SUBSYSTEM Verilog to 'rtl/subsystem/'...")
+  SpinalConfig(
+    targetDirectory              = "rtl/subsystem",
+    oneFilePerComponent          = true,
+    defaultClockDomainFrequency  = FixedFrequency(100 MHz),
+    defaultConfigForClockDomains = ClockDomainConfig(
+      resetKind        = ASYNC,
+      resetActiveLevel = HIGH
+    )
+  ).generateVerilog {
+    // For build 3, we demonstrate compiling a modular subsystem layout using DualPipelineTop as our top design shell!
+    val top = new DualPipelineTop(hierarchicalB = true)
     top
   }
 }

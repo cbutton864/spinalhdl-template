@@ -45,3 +45,28 @@ case class Params(
     TopIoExportPlugin()
   )
 }
+
+/** Companion object offering pre-built configuration profiles demonstrating different designs.
+  */
+object Params {
+  // 1. Single massive flat block optimization for tapeout area/timing performance
+  def productionFlat = Params(
+    timerWidth      = 8,
+    threshold       = 128,
+    globalHierarchy = Some(false)
+  )
+
+  // 2. Hierarchical blocks with debug counter sizes for timing partitions and wave tracing
+  def debugHierarchical = Params(
+    timerWidth      = 12,
+    threshold       = 512,
+    globalHierarchy = Some(true)
+  )
+
+  // 3. Composite Subsystem config swapping standard plugins for dynamic nested subsystems
+  def subsystemComposite = Params(
+    timerWidth      = 16,
+    threshold       = 1024,
+    globalHierarchy = Some(true)
+  )
+}

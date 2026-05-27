@@ -1,11 +1,11 @@
 // Generator : SpinalHDL v1.14.0    git head : 95a5e6c65c54acfc4707c8fe6ef8b5d297cfcbde
 // Component : MyTop
-// Git hash  : ff19e29ce3b916d620956902527df4458707c875
+// Git hash  : f3bd2395f1b945373aa3f854f165db897d58a99d
 
 `timescale 1ns/1ps 
 module MyTop (
   input  wire          enable,
-  output wire [7:0]    count,
+  output wire [11:0]   count,
   output wire          above_flag,
   output wire          rising_edge,
   output wire          falling_edge,
@@ -21,15 +21,15 @@ module MyTop (
   input  wire          reset
 );
 
-  wire       [7:0]    timer_TimerSub_outSig;
+  wire       [11:0]   timer_TimerSub_outSig;
   wire                TimerPlugin_logic_enable;
   reg                 comparator_aboveReg;
 
   timer_TimerSub timer_TimerSub (
-    .outSig       (timer_TimerSub_outSig[7:0]), //o
-    .pulledInputs (TimerPlugin_logic_enable  ), //i
-    .clk          (clk                       ), //i
-    .reset        (reset                     )  //i
+    .outSig       (timer_TimerSub_outSig[11:0]), //o
+    .pulledInputs (TimerPlugin_logic_enable   ), //i
+    .clk          (clk                        ), //i
+    .reset        (reset                      )  //i
   );
   assign TimerPlugin_logic_enable = enable;
   assign count = timer_TimerSub_outSig;
@@ -43,7 +43,7 @@ module MyTop (
     if(reset) begin
       comparator_aboveReg <= 1'b0;
     end else begin
-      comparator_aboveReg <= (8'h80 <= timer_TimerSub_outSig);
+      comparator_aboveReg <= (12'h200 <= timer_TimerSub_outSig);
     end
   end
 
