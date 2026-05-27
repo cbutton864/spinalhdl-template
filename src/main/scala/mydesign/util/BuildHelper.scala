@@ -3,13 +3,14 @@ package mydesign.util
 import spinal.core._
 import spinal.lib._
 
+// Named wrapper block. Saves manual prefixing on child nets.
 class PrefixArea(prefix: String) extends Area {
   this.setName(prefix)
 }
 
 sealed trait BuildMode
-case object DebugBuild      extends BuildMode // Hierarchical by default
-case object ProductionBuild extends BuildMode // Flat by default
+case object DebugBuild      extends BuildMode // Produces subcomponets for tracing waveforms
+case object ProductionBuild extends BuildMode // Produces plain flat RTL for synthesis
 case object CustomBuild     extends BuildMode
 
 case class BuildEnv(
@@ -28,9 +29,7 @@ case class BuildEnv(
 }
 
 object BuildHelper {
-  /** Automatically walks a structure and calls .pull() on any Data signal if `enabled` is true.
-    * Supports single Data signals, Tuples, and Sequences.
-    */
+  // Recursively calls .pull() on Data wires inside tuples or lists when hierarchical is on.
   def autoPull[T](signal: T, enabled: Boolean): T = {
     if (!enabled) signal
     else {
@@ -45,21 +44,17 @@ object BuildHelper {
         case seq: Seq[_] =>
           seq.map(item => autoPull(item, true)).asInstanceOf[T]
         case other =>
-          // If the item is anything other than a supported Spinal Data signal, Tuple, or Seq,
-          // throw a clear, domain-specific developer warning so they know exactly why compilation stopped.
           SpinalError(
             s"Auto-pulling failed: ${other.getClass.getName} is not a supported wire or connection type! " +
-            s"Ensure you only pass Spinal Data signals (like Bool, UInt, Bits, or Bundle), Tuples of those signals, " +
-            s"or standard Sequences (Seq/List) of those signals into your buildBlock parameter list."
+            s"Make sure you only pass Spinal Data signals, Tuples of signals, " +
+            s"or standard Sequences into the buildBlock helper parameter list."
           )
           other
       }
     }
   }
 
-  /** Conditionally wraps a hardware block in a sub-Component if `hierarchical` is true.
-    * Uses SpinalHDL's auto-pull mechanism to route implicit inputs.
-    */
+  // Wraps a block in a subcomponent if hierarchical is on.
   def buildBlock[T <: Data](
       outputType: HardType[T],
       hierarchical: Boolean,
@@ -83,9 +78,7 @@ object BuildHelper {
     }
   }
 
-  /** Conditionally wraps a hardware block in a sub-Component if `hierarchical` is true, 
-    * automatically pulling any external inputs passed in across the component boundary.
-    */
+  // Wraps a block in a subcomponent and automatically pulls external signals across the boundary.
   def buildBlock[T <: Data, K](
       outputType: HardType[T],
       hierarchical: Boolean,
@@ -111,9 +104,7 @@ object BuildHelper {
     }
   }
 
-  /** Conditionally wraps arbitrary execution block (e.g. subsystem / multiple plugins)
-    * in a sub-Component if `hierarchical` is true.
-    */
+  // Groups several plugins or cores into a single physical block if hierarchical is on.
   def buildSubsystem(
       hierarchical: Boolean,
       name: String
