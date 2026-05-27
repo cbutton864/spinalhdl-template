@@ -4,9 +4,12 @@ import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.misc.plugin._
 
-/** A Composite Fiber Plugin wrapper that groups several sub-plugins.
+/** A Generic Composite Fiber Plugin wrapper that groups several sub-plugins.
   * At build time, it dynamically wraps them inside a physical Component boundary
   * if `hierarchical` is true. Under the hood, it creates a nested PluginHost.
+  *
+  * This is an organic, production-ready RTL tool allowing developers to compose
+  * larger subsystem blocks dynamically out of modular leaf-level plugins.
   */
 case class SubsystemCompositePlugin(
     subsystemName: String,
