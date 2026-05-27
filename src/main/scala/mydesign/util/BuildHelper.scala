@@ -44,7 +44,15 @@ object BuildHelper {
           (autoPull(a, true), autoPull(b, true), autoPull(c, true), autoPull(d, true)).asInstanceOf[T]
         case seq: Seq[_] =>
           seq.map(item => autoPull(item, true)).asInstanceOf[T]
-        case other => other
+        case other =>
+          // If the item is anything other than a supported Spinal Data signal, Tuple, or Seq,
+          // throw a clear, domain-specific developer warning so they know exactly why compilation stopped.
+          SpinalError(
+            s"Auto-pulling failed: ${other.getClass.getName} is not a supported wire or connection type! " +
+            s"Ensure you only pass Spinal Data signals (like Bool, UInt, Bits, or Bundle), Tuples of those signals, " +
+            s"or standard Sequences (Seq/List) of those signals into your buildBlock parameter list."
+          )
+          other
       }
     }
   }
