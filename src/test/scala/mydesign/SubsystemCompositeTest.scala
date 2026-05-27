@@ -80,6 +80,7 @@ class SubsystemCompositeTest extends AnyFunSuite {
   test("Compile dual pipelines and review side-by-side flat vs composite structure") {
     val config = SpinalConfig(
       targetDirectory              = "rtl/subsystem_compare",
+      oneFilePerComponent          = true,
       defaultClockDomainFrequency  = FixedFrequency(100 MHz),
       defaultConfigForClockDomains = ClockDomainConfig(
         resetKind        = ASYNC,
