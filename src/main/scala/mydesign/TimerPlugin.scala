@@ -39,9 +39,8 @@ case class TimerPlugin(
     val enable = Bool()
     enable := enableRaw
 
-    // Conditional hierarchy using our buildBlock helper
-    val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, s"${periphName}_TimerSub") { outSig =>
-      val pulledEnable = if (hierarchical) enable.pull() else enable
+    // Conditional hierarchy using our buildBlock helper with automated input pulling!
+    val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, s"${periphName}_TimerSub", enable) { pulledEnable => outSig =>
       val core = TimerCore.build(
         periphName = periphName,
         width      = width,

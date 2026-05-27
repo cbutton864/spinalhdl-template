@@ -1,6 +1,6 @@
 // Generator : SpinalHDL v1.14.0    git head : 95a5e6c65c54acfc4707c8fe6ef8b5d297cfcbde
 // Component : DualPipelineTop
-// Git hash  : 31194528dbdc9d465f9b5015904854658df8641f
+// Git hash  : 43601a95c10d9fee4c975c454e7197c7070e7c12
 
 `timescale 1ns/1ps
 
@@ -23,10 +23,10 @@ module DualPipelineTop (
   reg                 comparatorA_aboveReg;
 
   timerA_TimerSub timerA_TimerSub (
-    .outSig             (timerA_TimerSub_outSig[7:0]), //o
-    .when_TimerCore_l36 (TimerPlugin_logic_enable   ), //i
-    .clk                (clk                        ), //i
-    .reset              (reset                      )  //i
+    .outSig       (timerA_TimerSub_outSig[7:0]), //o
+    .pulledInputs (TimerPlugin_logic_enable   ), //i
+    .clk          (clk                        ), //i
+    .reset        (reset                      )  //i
   );
   PipelineBSubsystem PipelineBSubsystem (
     .sub_enable         (enable                                    ), //i
@@ -65,10 +65,10 @@ module PipelineBSubsystem (
   reg                 sub_comparator_above;
 
   timerB_TimerCoreSub timerB_TimerCoreSub (
-    .sub_timer_count    (timerB_TimerCoreSub_sub_timer_count[7:0]), //o
-    .when_TimerCore_l36 (sub_enable                              ), //i
-    .clk                (clk                                     ), //i
-    .reset              (reset                                   )  //i
+    .sub_timer_count (timerB_TimerCoreSub_sub_timer_count[7:0]), //o
+    .pulledInputs    (sub_enable                              ), //i
+    .clk             (clk                                     ), //i
+    .reset           (reset                                   )  //i
   );
   assign _zz_sub_countB_out = timerB_TimerCoreSub_sub_timer_count;
   assign _zz_sub_flagB_out = sub_comparator_above;
@@ -85,7 +85,7 @@ endmodule
 
 module timerA_TimerSub (
   output wire [7:0]    outSig,
-  input  wire          when_TimerCore_l36,
+  input  wire          pulledInputs,
   input  wire          clk,
   input  wire          reset
 );
@@ -97,7 +97,7 @@ module timerA_TimerSub (
     if(reset) begin
       timerA_countReg <= 8'h0;
     end else begin
-      if(when_TimerCore_l36) begin
+      if(pulledInputs) begin
         timerA_countReg <= (timerA_countReg + 8'h01);
       end
     end
@@ -108,7 +108,7 @@ endmodule
 
 module timerB_TimerCoreSub (
   output wire [7:0]    sub_timer_count,
-  input  wire          when_TimerCore_l36,
+  input  wire          pulledInputs,
   input  wire          clk,
   input  wire          reset
 );
@@ -120,7 +120,7 @@ module timerB_TimerCoreSub (
     if(reset) begin
       timerB_countReg <= 8'h0;
     end else begin
-      if(when_TimerCore_l36) begin
+      if(pulledInputs) begin
         timerB_countReg <= (timerB_countReg + 8'h01);
       end
     end

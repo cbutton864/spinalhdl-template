@@ -60,8 +60,7 @@ class HierarchyCornerCasesTest extends AnyFunSuite {
         
         val cdArea = new ClockingArea(clkDomain2) {
           // Wrap dynamic logic that uses registers in the custom clock domain
-          val subCount = BuildHelper.buildBlock(HardType(UInt(8 bits)), hier, s"ClockDomainSub_hier_$hier") { outSig =>
-            val pulledEnable = if (hier) io.enable.pull() else io.enable
+          val subCount = BuildHelper.buildBlock(HardType(UInt(8 bits)), hier, s"ClockDomainSub_hier_$hier", io.enable) { pulledEnable => outSig =>
             val countReg = Reg(UInt(8 bits)) init 0
             when(pulledEnable) {
               countReg := countReg + 1
@@ -89,12 +88,10 @@ class HierarchyCornerCasesTest extends AnyFunSuite {
           val count  = out UInt(8 bits)
         }
         
-        val outerCount = BuildHelper.buildBlock(HardType(UInt(8 bits)), outerHier, s"OuterBlock_H${outerHier}_H$innerHier") { outerSig =>
-          val pulledOuterEnable = if (outerHier) io.enable.pull() else io.enable
+        val outerCount = BuildHelper.buildBlock(HardType(UInt(8 bits)), outerHier, s"OuterBlock_H${outerHier}_H$innerHier", io.enable) { pulledOuterEnable => outerSig =>
           
           // Nested block inside the outer block!
-          val innerSig = BuildHelper.buildBlock(HardType(UInt(8 bits)), innerHier, s"InnerBlock_H${outerHier}_H$innerHier") { innerSigSlot =>
-            val pulledInnerEnable = if (innerHier) pulledOuterEnable.pull() else pulledOuterEnable
+          val innerSig = BuildHelper.buildBlock(HardType(UInt(8 bits)), innerHier, s"InnerBlock_H${outerHier}_H$innerHier", pulledOuterEnable) { pulledInnerEnable => innerSigSlot =>
             
             val countReg = Reg(UInt(8 bits)) init 0
             when(pulledInnerEnable) {

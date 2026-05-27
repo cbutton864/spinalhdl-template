@@ -31,12 +31,11 @@ case class PipelineBSubsystemPlugin(
     // We reuse our BuildHelper to construct the physical boundary!
     BuildHelper.buildSubsystem(hierarchical, subsystemName) {
       // Pull inputs if we are in a separate physical component (pulls from parent to subComp)
-      val pulledEnable = if (hierarchical) enableRaw.pull() else enableRaw
+      val pulledEnable = BuildHelper.autoPull(enableRaw, hierarchical)
       pulledEnable.setName("sub_enable")
 
-      // 1. Build Timer Core conditionally inside its own sub-component using buildBlock!
-      val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchicalTimer, s"${periphName}_TimerCoreSub") { outSig =>
-        val timerEnable = if (hierarchicalTimer) pulledEnable.pull() else pulledEnable
+      // 1. Build Timer Core conditionally inside its own sub-component using buildBlock with automated pulling!
+      val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchicalTimer, s"${periphName}_TimerCoreSub", pulledEnable) { timerEnable => outSig =>
         val core = TimerCore.build(
           periphName = periphName,
           width      = width,
@@ -120,8 +119,8 @@ class DualPipelineTop(hierarchicalB: Boolean = true) extends Component {
       countBWire.setName("sub_countB_out")
       flagBWire.setName("sub_flagB_out")
       
-      countBWire := (if (hierarchicalB) subSystemB.countOut.await.pull() else subSystemB.countOut.await)
-      flagBWire  := (if (hierarchicalB) subSystemB.flagOut.await.pull() else subSystemB.flagOut.await)
+      countBWire := BuildHelper.autoPull(subSystemB.countOut.await, hierarchicalB)
+      flagBWire  := BuildHelper.autoPull(subSystemB.flagOut.await, hierarchicalB)
       
       io.countB := countBWire
       io.flagB  := flagBWire

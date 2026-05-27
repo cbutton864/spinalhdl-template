@@ -28,6 +28,27 @@ case class BuildEnv(
 }
 
 object BuildHelper {
+  /** Automatically walks a structure and calls .pull() on any Data signal if `enabled` is true.
+    * Supports single Data signals, Tuples, and Sequences.
+    */
+  def autoPull[T](signal: T, enabled: Boolean): T = {
+    if (!enabled) signal
+    else {
+      signal match {
+        case d: Data => d.pull().asInstanceOf[T]
+        case (a, b) =>
+          (autoPull(a, true), autoPull(b, true)).asInstanceOf[T]
+        case (a, b, c) =>
+          (autoPull(a, true), autoPull(b, true), autoPull(c, true)).asInstanceOf[T]
+        case (a, b, c, d) =>
+          (autoPull(a, true), autoPull(b, true), autoPull(c, true), autoPull(d, true)).asInstanceOf[T]
+        case seq: Seq[_] =>
+          seq.map(item => autoPull(item, true)).asInstanceOf[T]
+        case other => other
+      }
+    }
+  }
+
   /** Conditionally wraps a hardware block in a sub-Component if `hierarchical` is true.
     * Uses SpinalHDL's auto-pull mechanism to route implicit inputs.
     */
@@ -50,6 +71,34 @@ object BuildHelper {
     } else {
       val sig = outputType()
       body(sig)
+      sig
+    }
+  }
+
+  /** Conditionally wraps a hardware block in a sub-Component if `hierarchical` is true, 
+    * automatically pulling any external inputs passed in across the component boundary.
+    */
+  def buildBlock[T <: Data, K](
+      outputType: HardType[T],
+      hierarchical: Boolean,
+      name: String,
+      inputs: K
+  )(body: K => T => Unit): T = {
+    if (hierarchical) {
+      val block = new Component {
+        val outSig = outputType() match {
+          case ms: IMasterSlave => master(ms).asInstanceOf[T]
+          case other => out(other)
+        }
+        val pulledInputs = autoPull(inputs, true)
+        body(pulledInputs)(outSig)
+      }
+      block.setDefinitionName(name)
+      block.setName(name)
+      block.outSig
+    } else {
+      val sig = outputType()
+      body(inputs)(sig)
       sig
     }
   }
