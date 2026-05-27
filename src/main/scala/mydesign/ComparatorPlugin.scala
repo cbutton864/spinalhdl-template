@@ -20,7 +20,8 @@ import spinal.lib.misc.plugin._
   *   - `aboveFlag: Handle[Bool]` — true when processedOut >= threshold
   */
 case class ComparatorPlugin(
-    threshold: Int = 128
+    threshold: Int = 128,
+    periphName: String = "comparator"
 ) extends FiberPlugin with ThresholdResult {
 
   // ── Published Handles ──────────────────────────────────────
@@ -30,7 +31,7 @@ case class ComparatorPlugin(
     val countVal = host[ProcessedSignal].processedOut.await
 
     val core = ComparatorCore.build(
-      periphName = "comparator",
+      periphName = periphName,
       threshold  = threshold,
       countIn    = countVal
     )

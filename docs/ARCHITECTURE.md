@@ -459,6 +459,26 @@ sbt "runMain mydesign.GenVerilog"   # generates rtl/MyTop.v
 `GenVerilog.scala` calls `report.printPruned()` after generation. **Pruned signals are a
 warning sign**: they usually mean a missing connection, not an optimisation.
 
+### Parameterized Meta-Hierarchy (The `buildBlock` Pattern)
+
+For debugging and schematic mapping, you can optionally wrap flat blocks with hierarchical boundaries at elaboration-time under parameterized configurations using `BuildHelper.buildBlock`. 
+
+This allows you to select flat compilation for maximum production synthesis optimization, or nested modules for timing analysis and wave tracing.
+
+#### Implementation Pattern
+```scala
+val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, "TimerSub") { outSig =>
+  val pulledEnable = if (hierarchical) enable.pull() else enable
+  val core = TimerCore.build("timer", width, enable = pulledEnable)
+  outSig := core.count
+}
+```
+
+#### Verification Rules
+- **Cross-Component Pulling**: Calls to `.pull()` are required for external signals entering dynamic boundaries to prevent SpinalHDL `PhaseCheckHierarchy` warnings.
+- **Definite Port Names**: Dynamic components must execute `.setDefinitionName()` and `.setName()` to prevent blank/unnamed sub-module names in the generated Verilog source.
+- **Behavioral Equivalence**: The inner core RTL must maintain cycle-exact timing and functional equivalence in both flat and hierarchical modes.
+
 ---
 
 ## 11. Test Infrastructure
@@ -510,6 +530,31 @@ class TimerCoreTest extends AnyFunSuite {
 | **Elaboration** | `ElaborationTest.scala` | Smoke test: full design generates Verilog for all plugin combinations |
 | **Core unit** | `XxxCoreTest.scala` | Functional tests via Verilator simulation |
 | **Integration** | `XxxChainTest.scala` | Multi-core pipeline testing |
+
+### Test Boundary Isolation and sbt `IntegrationTest`
+
+The design enforces strict boundaries between development unit/elaboration testing and golden hardware generation.
+
+#### 1. Sandbox Compilation Path
+To prevent unit/smoke testing from overwriting or contaminating standard release-ready verilog outputs, tests and transient compilations **MUST** write to the ignored temporary directory `target/tmp_rtl` rather than `rtl/`:
+```scala
+SpinalConfig(targetDirectory = "target/tmp_rtl")
+```
+
+#### 2. Separated Integration Testing (`src/it`)
+Production release validation is situated under sbt's native `IntegrationTest` layout in `src/it/scala`.
+
+- **Release Target Binding**: The integration test suite asserts correctness directly against the finalized compiled files (e.g., `rtl/MyTop.v`), validating actual downstream assets rather than re-compiling live Scala code.
+- **Source Synchronicity**: Tests extending `GoldenIntegrationTest` verify that the compiled production Verilog asset actually exists on disk and is strictly newer than any source files in `src/main/scala`:
+  ```scala
+  class MyTopIntegrationTest extends GoldenIntegrationTest {
+    // Verified against rtl/MyTop.v automatically
+  }
+  ```
+- **Execution Command**:
+  ```bash
+  sbt it:test
+  ```
 
 ---
 

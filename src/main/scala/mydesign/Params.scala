@@ -18,7 +18,10 @@ case class Params(
     timerWidth: Int = 8,
 
     // ── Comparator ─────────────────────────────────────────────
-    threshold:  Int = 128
+    threshold:  Int = 128,
+
+    // ── Hierarchy Configuration ────────────────────────────────
+    globalHierarchy: Option[Boolean] = None
 ) {
   require(timerWidth >= 1 && timerWidth <= 32,
     s"timerWidth must be 1..32, got $timerWidth")
@@ -36,7 +39,7 @@ case class Params(
     *   ApbMonitorPlugin()   — side channel: exposes timer/threshold state via APB3
     */
   def plugins: Seq[FiberPlugin] = Seq(
-    TimerPlugin(width = timerWidth),           // Stage 1: signal source
+    TimerPlugin(width = timerWidth, hierarchical = globalHierarchy.getOrElse(false)), // Stage 1: signal source
     PassThroughPlugin(),                        // Stage 2: swap ↔ ScalePlugin(shift = 2)
     ComparatorPlugin(threshold = threshold),    // Stage 3: swap ↔ HysteresisPlugin(lo = 64, hi = 192)
     TopIoExportPlugin()

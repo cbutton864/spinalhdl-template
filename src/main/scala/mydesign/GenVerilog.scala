@@ -3,19 +3,31 @@ package mydesign
 import spinal.core._
 
 object GenVerilog extends App {
-  val report = SpinalConfig(
-    targetDirectory              = "rtl",
+  // ── Build 1: Standard FLAT Production Build ───────────────────────
+  println("Generating FLAT Production Verilog to 'rtl/flat/'...")
+  SpinalConfig(
+    targetDirectory              = "rtl/flat",
     defaultClockDomainFrequency  = FixedFrequency(100 MHz),
     defaultConfigForClockDomains = ClockDomainConfig(
       resetKind        = ASYNC,
       resetActiveLevel = HIGH
     )
   ).generateVerilog {
-    val top = new MyTop(Params())
-    // Rename clock/reset ports to match board pinout if needed:
-    // top.clockDomain.clock.setName("sys_clk")
-    // top.clockDomain.reset.setName("sys_rst")
+    val top = new MyTop(Params(globalHierarchy = Some(false)))
     top
   }
-  report.printPruned()
+
+  // ── Build 2: HIERARCHICAL Debug Build ─────────────────────────────
+  println("Generating HIERARCHICAL Debug Verilog to 'rtl/hierarchical/'...")
+  SpinalConfig(
+    targetDirectory              = "rtl/hierarchical",
+    defaultClockDomainFrequency  = FixedFrequency(100 MHz),
+    defaultConfigForClockDomains = ClockDomainConfig(
+      resetKind        = ASYNC,
+      resetActiveLevel = HIGH
+    )
+  ).generateVerilog {
+    val top = new MyTop(Params(globalHierarchy = Some(true)))
+    top
+  }
 }

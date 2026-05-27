@@ -4,6 +4,7 @@ import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
 import spinal.lib.misc.plugin._
+import mydesign.util.BuildHelper
 
 /** Stage 1 — free-running timer with enable gate.
   *
@@ -19,7 +20,9 @@ import spinal.lib.misc.plugin._
   *   - `signalOut: Handle[UInt]` — same Handle; satisfies SignalSource
   */
 case class TimerPlugin(
-    width: Int = 8
+    width: Int = 8,
+    hierarchical: Boolean = false,
+    periphName: String = "timer"
 ) extends FiberPlugin with SignalSource {
 
   // ── Published Handles ──────────────────────────────────────
@@ -30,14 +33,23 @@ case class TimerPlugin(
   val enableIn: Handle[Bool] = Handle[Bool]()
 
   val logic = during build new Area {
-    val enable = enableIn.await  // block until TopIoExport loads this
+    val enableRaw = enableIn.await  // block until TopIoExport loads this
+    
+    // Create an intermediate directionless wire in the parent context
+    val enable = Bool()
+    enable := enableRaw
 
-    val core = TimerCore.build(
-      periphName = "timer",
-      width      = width,
-      enable     = enable
-    )
+    // Conditional hierarchy using our buildBlock helper
+    val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, s"${periphName}_TimerSub") { outSig =>
+      val pulledEnable = if (hierarchical) enable.pull() else enable
+      val core = TimerCore.build(
+        periphName = periphName,
+        width      = width,
+        enable     = pulledEnable
+      )
+      outSig := core.count
+    }
 
-    countOut.load(core.count)
+    countOut.load(timerCount)
   }
 }

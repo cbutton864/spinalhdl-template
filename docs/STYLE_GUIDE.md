@@ -1704,6 +1704,69 @@ Use hierarchical (via the Plugin IP Component pattern below) when: the block wil
 delivered to another team as a Verilog module, will be reused across projects, or needs
 an isolated testbench.
 
+#### 23.4 Parameterized Meta-Hierarchy (The `buildBlock` Pattern)
+
+For designs that require a flat, performance-optimal structure in production but benefit from hierarchical boundaries in debugging, schematic generation, or GTKWave simulation, you **SHOULD** use the *Parameterized Meta-Hierarchy* pattern via `BuildHelper.buildBlock`. 
+
+This pattern allows the compiler to dynamically generate sub-modules around core logic at elaboration-time based on a boolean parameter (`hierarchical` or a global configuration environment like `BuildEnv`), without requiring duplicate OOP wrappers or manual wiring.
+
+```scala
+val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, "TimerSub") { outSig =>
+  val pulledEnable = if (hierarchical) enable.pull() else enable
+  val core = TimerCore.build("timer", width, enable = pulledEnable)
+  outSig := core.count
+}
+```
+
+##### 23.4.1 Rules for Meta-Hierarchy blocks
+
+1. **Hierarchy Isolation via Pulling**: When `hierarchical` is enabled, any signal crossing the dynamic component boundary (such as clock-domain signals, host controls, or outputs from other cores) **MUST** be explicitly pulled using `.pull()` (e.g., `enable.pull()`). Failing to pull external signals entering the dynamically generated child component causes a SpinalHDL `PhaseCheckHierarchy` violation.
+2. **Definite Naming**: The block **MUST** specify explicit tracking names. Inside the dynamic builder, both `setDefinitionName(name)` and `setName(name)` **MUST** be executed to avoid SpinalHDL generating auto-incrementing `unnamed` modules in the output Verilog.
+3. **Logic Idempotence**: The underlying RTL logic **MUST** execute identically regardless of whether the hierarchical block is compiled flat or as a nested component.
+
+#### 23.5 Subsystem Composite Packaging (The `buildSubsystem` Pattern)
+
+To group multiple distinct core-logic blocks or entire pipeline sub-stages under a single physical sub-module boundary, you **SHOULD** use the *Subsystem Composite Packaging* pattern via `BuildHelper.buildSubsystem`.
+
+Unlike nested `PluginHost` instances, which can suffer from deadlocks during dependency resolution, this pattern consolidates peripheral core logic inside a single fiber plugin and utilizes `buildSubsystem` to compile it dynamically as a single standalone module or inline flat logic:
+
+```scala
+// Define composite subsystem plugin
+case class PipelineSubsystemPlugin(
+    hierarchical: Boolean = true,
+    subsystemName: String = "PipelineBSubsystem"
+) extends FiberPlugin {
+
+  val enableIn: Handle[Bool] = Handle[Bool]()
+  val countOut: Handle[UInt] = Handle[UInt]()
+
+  val logic = during build new Area {
+    val enableRaw = enableIn.await
+
+    BuildHelper.buildSubsystem(hierarchical, subsystemName) {
+      // Inputs: Pull into child component
+      val pulledEnable = if (hierarchical) enableRaw.pull() else enableRaw
+      pulledEnable.setName("sub_enable")
+
+      // 1. Instantiate multi-stage core logic
+      val timer = TimerCore.build("timer", 8, enable = pulledEnable)
+      timer.count.setName("sub_timer_count")
+
+      // Outputs: Parent/IoExport pulls these back out
+      countOut.load(timer.count)
+    }
+  }
+}
+```
+
+##### 23.5.1 Rules for Subsystem Composite Packaging
+
+1. **Prevent Multi-Host Deadlocks**: Avoid implementing multiple active `PluginHost` context managers nested within each other. Instead, utilize one shared top-level host and group the actual block elaboration execution within a `buildSubsystem` area block.
+2. **Double-Ended API Pulling**: To guarantee a clean Verilog signature with no auto-generated intermediate names:
+   - **Inputs** entering the subsystem must be named and pulled inside the `buildSubsystem` scope (`val pulled = raw.pull(); pulled.setName("name")`).
+   - **Outputs** exported back to the top-level parent must be assigned clear names at the leaf level inside the subsystem, and the top-level client/io exporter must pull them back across the boundary (`val outVal = subSystem.countOut.await.pull()`).
+3. **Logical Nesting**: You can stack these patterns! A dynamic component wrapped inside `buildSubsystem` is free to use `buildBlock` nested inside itself to draw deep schematic boundaries around specific engines (e.g. State Machines, RAM wrappers, complex registers) for advanced waveform scoping and RTL reviews.
+
 ---
 
 ### 24. The Plugin IP Component — Encapsulating a Plugin as Reusable IP
@@ -2683,6 +2746,29 @@ class ElaborationTest extends AnyFunSuite {
 #### 42.5 What Elaboration Tests Do Not Catch
 
 Functional correctness, timing behavior, and protocol compliance. These require simulation.
+
+#### 42.6 Test Boundary and Release RTL Isolation
+
+To maintain repository hygiene and prevent transient test executions from overwriting or contaminating release-ready RTL assets, the workspace implements physical compilation boundaries.
+
+##### 42.6.1 Unit/Elaboration Test Sandbox Rules
+
+- **Isolate Test Outputs**: Elaboration and unit tests **MUST NOT** write files to the production `rtl/` directory. All transient or validation Verilog compilation **MUST** target an ignored temporary directory, such as `target/tmp_rtl/`.
+- **Verify without pollution**: Set the target directory explicitly in test SpinalConfigurations:
+  ```scala
+  SpinalConfig(targetDirectory = "target/tmp_rtl")
+  ```
+
+##### 42.6.2 The sbt Integration Test Scope (`src/it`)
+
+To validate that the release Verilog under `rtl/` is structurally sound, valid, and up to date relative to the Scala sources, the project utilizes sbt's native `IntegrationTest` configuration (`src/it/scala`).
+
+- **Target Golden RTL**: Integration tests **MUST** execute checks specifically against the compiled production file (e.g., `rtl/MyTop.v`), never compiling transient Scala state.
+- **Enforce Source Synchronization**: Integration tests **MUST** verify that the modification time of `rtl/MyTop.v` is newer than any `src/main/scala` file, block-elaboration compile, or development dependency. If source files are modified, the integration test must fail to alert the developer to regenerate RTL.
+- **Run isolated**: Trigger integration tests separately from normal unit tests using:
+  ```bash
+  sbt it:test
+  ```
 
 ---
 

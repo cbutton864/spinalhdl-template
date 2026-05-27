@@ -15,7 +15,7 @@ import org.scalatest.funsuite.AnyFunSuite
 class ElaborationTest extends AnyFunSuite {
 
   private def cfg = SpinalConfig(
-    targetDirectory              = "rtl",
+    targetDirectory              = "target/tmp_rtl",
     defaultClockDomainFrequency  = FixedFrequency(100 MHz),
     defaultConfigForClockDomains = ClockDomainConfig(
       resetKind        = ASYNC,
@@ -131,5 +131,42 @@ class ElaborationTest extends AnyFunSuite {
       )
     }
     cfg.generateVerilog(new MyTop(params))
+  }
+
+  // ── Hierarchical BuildBlock Demonstration ──────────────────────────────────────────
+
+  test("TimerPlugin compiles FLAT when hierarchical is FALSE") {
+    val params = new Params() {
+      override def plugins = Seq(
+        TimerPlugin(width = timerWidth, hierarchical = false, periphName = "timer"),
+        PassThroughPlugin(),
+        ComparatorPlugin(threshold = threshold),
+        TopIoExportPlugin()
+      )
+    }
+    val design = cfg.generateVerilog(new MyTop(params))
+    // Verify that "timer_TimerSub" is NOT instantiated as a module inside the MyTop verilog
+    val verilogCode = java.nio.file.Files.readString(
+      java.nio.file.Paths.get("target/tmp_rtl", "MyTop.v")
+    )
+    assert(!verilogCode.contains("module timer_TimerSub"), "Verilog should not contain module timer_TimerSub in flat mode")
+  }
+
+  test("TimerPlugin compiles HIERARCHICAL when hierarchical is TRUE (buildBlock meta-hierarchy)") {
+    val params = new Params() {
+      override def plugins = Seq(
+        TimerPlugin(width = timerWidth, hierarchical = true, periphName = "timer"),
+        PassThroughPlugin(),
+        ComparatorPlugin(threshold = threshold),
+        TopIoExportPlugin()
+      )
+    }
+    val design = cfg.generateVerilog(new MyTop(params))
+    // Verify that "timer_TimerSub" IS instantiated as a separate component/module inside MyTop verilog
+    val verilogCode = java.nio.file.Files.readString(
+      java.nio.file.Paths.get("target/tmp_rtl", "MyTop.v")
+    )
+    assert(verilogCode.contains("module timer_TimerSub"), "Verilog should contain module timer_TimerSub in hierarchical mode")
+    assert(verilogCode.contains("timer_TimerSub timer_TimerSub (") || verilogCode.contains("timer_TimerSub timer_TimerSub_inst"), "timer_TimerSub should be instantiated inside top-level component")
   }
 }

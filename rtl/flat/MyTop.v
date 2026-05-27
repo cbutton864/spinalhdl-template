@@ -22,18 +22,14 @@ module MyTop (
   input  wire          reset
 );
 
-  wire       [7:0]    TimerSub_outSig;
   wire                TimerPlugin_logic_enable;
+  wire       [7:0]    TimerPlugin_logic_timerCount;
+  reg        [7:0]    timer_countReg;
   reg                 comparator_aboveReg;
 
-  TimerSub TimerSub (
-    .outSig             (TimerSub_outSig[7:0]    ), //o
-    .when_TimerCore_l35 (TimerPlugin_logic_enable), //i
-    .clk                (clk                     ), //i
-    .reset              (reset                   )  //i
-  );
   assign TimerPlugin_logic_enable = enable;
-  assign count = TimerSub_outSig;
+  assign TimerPlugin_logic_timerCount = timer_countReg;
+  assign count = TimerPlugin_logic_timerCount;
   assign above_flag = comparator_aboveReg;
   assign rising_edge = 1'b0;
   assign falling_edge = 1'b0;
@@ -42,32 +38,13 @@ module MyTop (
   assign apb_PSLVERR = 1'b0;
   always @(posedge clk or posedge reset) begin
     if(reset) begin
+      timer_countReg <= 8'h0;
       comparator_aboveReg <= 1'b0;
     end else begin
-      comparator_aboveReg <= (8'h80 <= TimerSub_outSig);
-    end
-  end
-
-
-endmodule
-
-module TimerSub (
-  output wire [7:0]    outSig,
-  input  wire          when_TimerCore_l35,
-  input  wire          clk,
-  input  wire          reset
-);
-
-  reg        [7:0]    timer_countReg;
-
-  assign outSig = timer_countReg;
-  always @(posedge clk or posedge reset) begin
-    if(reset) begin
-      timer_countReg <= 8'h0;
-    end else begin
-      if(when_TimerCore_l35) begin
+      if(TimerPlugin_logic_enable) begin
         timer_countReg <= (timer_countReg + 8'h01);
       end
+      comparator_aboveReg <= (8'h80 <= TimerPlugin_logic_timerCount);
     end
   end
 
