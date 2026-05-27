@@ -1711,8 +1711,7 @@ For designs that require a flat, performance-optimal structure in production but
 This pattern allows the compiler to dynamically generate sub-modules around core logic at elaboration-time based on a boolean parameter (`hierarchical` or a global configuration environment like `BuildEnv`), without requiring duplicate OOP wrappers or manual wiring.
 
 ```scala
-val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, "TimerSub") { outSig =>
-  val pulledEnable = if (hierarchical) enable.pull() else enable
+val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, "TimerSub", enable) { pulledEnable => outSig =>
   val core = TimerCore.build("timer", width, enable = pulledEnable)
   outSig := core.count
 }
@@ -1720,7 +1719,7 @@ val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical
 
 ##### 23.4.1 Rules for Meta-Hierarchy blocks
 
-1. **Hierarchy Isolation via Pulling**: When `hierarchical` is enabled, any signal crossing the dynamic component boundary (such as clock-domain signals, host controls, or outputs from other cores) **MUST** be explicitly pulled using `.pull()` (e.g., `enable.pull()`). Failing to pull external signals entering the dynamically generated child component causes a SpinalHDL `PhaseCheckHierarchy` violation.
+1. **Hierarchy Isolation via Automated Pulling**: When `hierarchical` is enabled, any signal crossing the dynamic component boundary (such as clock-domain signals, host controls, or outputs from other cores) passed via the `inputs` parameter is automatically walked and pulled using recursive `.pull()` rules (including inside tuples or sequences) inside the child context. This prevents SpinalHDL `PhaseCheckHierarchy` violations with zero manual boilerplate.
 2. **Definite Naming**: The block **MUST** specify explicit tracking names. Inside the dynamic builder, both `setDefinitionName(name)` and `setName(name)` **MUST** be executed to avoid SpinalHDL generating auto-incrementing `unnamed` modules in the output Verilog.
 3. **Logic Idempotence**: The underlying RTL logic **MUST** execute identically regardless of whether the hierarchical block is compiled flat or as a nested component.
 
@@ -1745,7 +1744,7 @@ case class PipelineSubsystemPlugin(
 
     BuildHelper.buildSubsystem(hierarchical, subsystemName) {
       // Inputs: Pull into child component
-      val pulledEnable = if (hierarchical) enableRaw.pull() else enableRaw
+      val pulledEnable = BuildHelper.autoPull(enableRaw, hierarchical)
       pulledEnable.setName("sub_enable")
 
       // 1. Instantiate multi-stage core logic
@@ -1763,8 +1762,8 @@ case class PipelineSubsystemPlugin(
 
 1. **Prevent Multi-Host Deadlocks**: Avoid implementing multiple active `PluginHost` context managers nested within each other. Instead, utilize one shared top-level host and group the actual block elaboration execution within a `buildSubsystem` area block.
 2. **Double-Ended API Pulling**: To guarantee a clean Verilog signature with no auto-generated intermediate names:
-   - **Inputs** entering the subsystem must be named and pulled inside the `buildSubsystem` scope (`val pulled = raw.pull(); pulled.setName("name")`).
-   - **Outputs** exported back to the top-level parent must be assigned clear names at the leaf level inside the subsystem, and the top-level client/io exporter must pull them back across the boundary (`val outVal = subSystem.countOut.await.pull()`).
+   - **Inputs** entering the subsystem must be named and pulled inside the `buildSubsystem` scope (`val pulled = BuildHelper.autoPull(raw, hierarchical); pulled.setName("name")`).
+   - **Outputs** exported back to the top-level parent must be assigned clear names at the leaf level inside the subsystem, and the top-level client/io exporter must pull them back across the boundary (`val outVal = BuildHelper.autoPull(subSystem.countOut.await, hierarchical)`).
 3. **Logical Nesting**: You can stack these patterns! A dynamic component wrapped inside `buildSubsystem` is free to use `buildBlock` nested inside itself to draw deep schematic boundaries around specific engines (e.g. State Machines, RAM wrappers, complex registers) for advanced waveform scoping and RTL reviews.
 
 ---

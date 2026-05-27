@@ -1,6 +1,6 @@
 // Generator : SpinalHDL v1.14.0    git head : 95a5e6c65c54acfc4707c8fe6ef8b5d297cfcbde
 // Component : MyTop
-// Git hash  : 31194528dbdc9d465f9b5015904854658df8641f
+// Git hash  : 10b6bc47a670f40474409cbc81cf6e91dbf80040
 
 `timescale 1ns/1ps
 
@@ -27,10 +27,10 @@ module MyTop (
   reg                 comparator_aboveReg;
 
   timer_TimerSub timer_TimerSub (
-    .outSig             (timer_TimerSub_outSig[7:0]), //o
-    .when_TimerCore_l36 (TimerPlugin_logic_enable  ), //i
-    .clk                (clk                       ), //i
-    .reset              (reset                     )  //i
+    .outSig       (timer_TimerSub_outSig[7:0]), //o
+    .pulledInputs (TimerPlugin_logic_enable  ), //i
+    .clk          (clk                       ), //i
+    .reset        (reset                     )  //i
   );
   assign TimerPlugin_logic_enable = enable;
   assign count = timer_TimerSub_outSig;
@@ -53,7 +53,7 @@ endmodule
 
 module timer_TimerSub (
   output wire [7:0]    outSig,
-  input  wire          when_TimerCore_l36,
+  input  wire          pulledInputs,
   input  wire          clk,
   input  wire          reset
 );
@@ -65,7 +65,7 @@ module timer_TimerSub (
     if(reset) begin
       timer_countReg <= 8'h0;
     end else begin
-      if(when_TimerCore_l36) begin
+      if(pulledInputs) begin
         timer_countReg <= (timer_countReg + 8'h01);
       end
     end

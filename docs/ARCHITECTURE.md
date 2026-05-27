@@ -138,12 +138,13 @@ object TimerCore {
   ): Io = {
     require(enable != null, "enable signal is required")
 
-    val countReg = Reg(UInt(width bits)) init 0
-    countReg.setName(s"${periphName}_countReg")
+    val logic = new PrefixArea(periphName) {
+      val countReg = Reg(UInt(width bits)) init 0
 
-    when(enable) { countReg := countReg + 1 }
+      when(enable) { countReg := countReg + 1 }
+    }
 
-    Io(count = countReg)
+    Io(count = logic.countReg)
   }
 }
 ```
@@ -152,7 +153,7 @@ object TimerCore {
 
 - **`object`**: stateless; all state lives in the returned hardware nodes
 - **`case class Io`**: plain Scala, NOT `extends Bundle`
-- **`periphName` prefix** on all registers: prevents name collisions in flat Verilog
+- **`PrefixArea(periphName)`**: Automatically wraps inner registers and memories to give them unique names in flat Verilog, completely eliminating manual `.setName()` string boilerplates for child signals.
 - **`require()` guards**: validate inputs at elaboration time, before hardware is created
 - **Bus-agnostic**: takes raw signals, not bus-specific bundles
 - **No Component instantiation** inside `build()`
@@ -467,15 +468,14 @@ This allows you to select flat compilation for maximum production synthesis opti
 
 #### Implementation Pattern
 ```scala
-val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, "TimerSub") { outSig =>
-  val pulledEnable = if (hierarchical) enable.pull() else enable
+val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, "TimerSub", enable) { pulledEnable => outSig =>
   val core = TimerCore.build("timer", width, enable = pulledEnable)
   outSig := core.count
 }
 ```
 
 #### Verification Rules
-- **Cross-Component Pulling**: Calls to `.pull()` are required for external signals entering dynamic boundaries to prevent SpinalHDL `PhaseCheckHierarchy` warnings.
+- **Automated Input Pulling**: Use `BuildHelper.buildBlock` with the `inputs` parameter. This automatically calls `.pull()` on any inputs passed through (including single signals, tuples, or collections) when compiling in hierarchical mode, keeping the user logic clean and avoiding `PhaseCheckHierarchy` warnings.
 - **Definite Port Names**: Dynamic components must execute `.setDefinitionName()` and `.setName()` to prevent blank/unnamed sub-module names in the generated Verilog source.
 - **Behavioral Equivalence**: The inner core RTL must maintain cycle-exact timing and functional equivalence in both flat and hierarchical modes.
 
