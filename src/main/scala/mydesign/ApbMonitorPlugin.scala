@@ -34,20 +34,8 @@ case class ApbMonitorPlugin() extends FiberPlugin {
     val top = Component.current.asInstanceOf[MyTop]
 
     // ── Reconstruct the APB3 bus from individual top-level signals ──────────
-    // Individual signals are declared in Top.scala for clean port naming.
-    // Here we wire them into an Apb3 bundle for use with Apb3SlaveFactory.
-    val apbConfig = Apb3Config(addressWidth = 8, dataWidth = 32)
-    val apb       = Apb3(apbConfig)
-
-    apb.PADDR   := top.io.apb_PADDR
-    apb.PSEL    := top.io.apb_PSEL.asBits   // Top declares Bool; Apb3 bundle uses Bits(1 bits)
-    apb.PENABLE := top.io.apb_PENABLE
-    apb.PWRITE  := top.io.apb_PWRITE
-    apb.PWDATA  := top.io.apb_PWDATA
-
-    top.io.apb_PREADY  := apb.PREADY
-    top.io.apb_PRDATA  := apb.PRDATA
-    top.io.apb_PSLVERR := apb.PSLVERROR     // SpinalHDL Apb3 field is PSLVERROR
+    // We now have a standard, unified Apb3 bundle on high-level io.apb!
+    val apb = top.io.apb
 
     // ── Register map via Apb3SlaveFactory ────────────────────────────────────
     val factory = Apb3SlaveFactory(apb)

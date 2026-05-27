@@ -67,9 +67,9 @@ case class TopIoExportPlugin() extends FiberPlugin {
     // When ApbMonitorPlugin is present, it drives these ports directly.
     Try(host[ApbMonitorPlugin]).toOption match {
       case None =>
-        top.io.apb_PREADY  := True              // always ready (no slave)
-        top.io.apb_PRDATA  := B(0, 32 bits)
-        top.io.apb_PSLVERR := False
+        top.io.apb.PREADY  := True              // always ready (no slave)
+        top.io.apb.PRDATA  := B(0, 32 bits)
+        top.io.apb.PSLVERROR := False
       case Some(_) => // ApbMonitorPlugin drives these in its own logic block
     }
   }

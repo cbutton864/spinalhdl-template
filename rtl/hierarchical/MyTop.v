@@ -1,6 +1,6 @@
 // Generator : SpinalHDL v1.14.0    git head : 95a5e6c65c54acfc4707c8fe6ef8b5d297cfcbde
 // Component : MyTop
-// Git hash  : 32fd2f85cb83b2bc36ccb2d191467bb238a6f5e2
+// Git hash  : 31194528dbdc9d465f9b5015904854658df8641f
 
 `timescale 1ns/1ps
 
@@ -11,11 +11,11 @@ module MyTop (
   output wire          rising_edge,
   output wire          falling_edge,
   input  wire [7:0]    apb_PADDR,
-  input  wire          apb_PSEL,
+  input  wire [0:0]    apb_PSEL,
   input  wire          apb_PENABLE,
+  output wire          apb_PREADY,
   input  wire          apb_PWRITE,
   input  wire [31:0]   apb_PWDATA,
-  output wire          apb_PREADY,
   output wire [31:0]   apb_PRDATA,
   output wire          apb_PSLVERR,
   input  wire          clk,
