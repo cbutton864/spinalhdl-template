@@ -9,8 +9,8 @@ class PrefixArea(prefix: String) extends Area {
 }
 
 sealed trait BuildMode
-case object DebugBuild      extends BuildMode // Produces subcomponets for tracing waveforms
-case object ProductionBuild extends BuildMode // Produces plain flat RTL for synthesis
+case object DebugBuild      extends BuildMode // Produces subcomponents for floorplanning, partitions, and tracing waves
+case object ProductionBuild extends BuildMode // Produces plain flat RTL for maximum global synthesis optimization
 case object CustomBuild     extends BuildMode
 
 case class BuildEnv(
@@ -54,7 +54,7 @@ object BuildHelper {
     }
   }
 
-  // Wraps a block in a subcomponent if hierarchical is on.
+  // Wraps a block in a subcomponent for floorplanning, partitions, and tracing logic.
   def buildBlock[T <: Data](
       outputType: HardType[T],
       hierarchical: Boolean,
@@ -78,7 +78,7 @@ object BuildHelper {
     }
   }
 
-  // Wraps a block in a subcomponent and automatically pulls external signals across the boundary.
+  // Wraps a block in a subcomponent, automatically pulling inputs. Good for floorplanning.
   def buildBlock[T <: Data, K](
       outputType: HardType[T],
       hierarchical: Boolean,
@@ -104,7 +104,7 @@ object BuildHelper {
     }
   }
 
-  // Groups several plugins or cores into a single physical block if hierarchical is on.
+  // Groups plugins or cores into a single block. Helpful for physical placement.
   def buildSubsystem(
       hierarchical: Boolean,
       name: String
