@@ -1,8 +1,8 @@
-# SpinalHDL Flat-Plugin Template
+# SpinalHDL Dynamic & Flat Hybrid-Plugin Template
 
-A template project demonstrating the **FiberPlugin flat architecture** pattern for
-SpinalHDL FPGA designs. All RTL logic lives in composable plugins — no component
-hierarchy. Generates clean, flat Verilog ready for any vendor toolchain.
+A battle-hardened, general-use SpinalHDL template demonstrating the **hybrid Fiber-Plugin architecture**. It supports compiling the design as a plain flat module for global area optimization, or generating modular, dynamic boundaries (`buildBlock`) for backend floorplanning, layout placement partitioning, timing exceptions, and selective simulation wave tracing.
+
+All RTL logic core blocks reside within composable software plugins, completely automating manual register namespacing, bus port declarations, and cross-boundary signal routing.
 
 ## Quick Start
 
@@ -11,92 +11,89 @@ hierarchy. Generates clean, flat Verilog ready for any vendor toolchain.
 
 # Generate Verilog
 sbt "runMain mydesign.GenVerilog"
-# Output: rtl/MyTop.v
+# Output is compiled inside: target/tmp_rtl
 
-# Run all tests
+# Run all unit tests (uses Verilator)
 sbt test
 
-# Run a specific test
-sbt "testOnly mydesign.CounterCoreTest"
+# Run a specific unit test
+sbt "testOnly mydesign.TimerCoreTest"
+
+# Run integration tests (golden baseline checks)
+sbt "it:test"
 ```
 
 ## Project Structure
 
-```
-├── build.sbt                            # SpinalHDL 1.14.0 + ScalaTest
-├── src/main/scala/mydesign/
-│   ├── Params.scala                     # Parameters + plugin list
-│   ├── Top.scala                        # Top Component (IO only)
-│   ├── GenVerilog.scala                 # Verilog generation
-│   ├── CounterPlugin.scala              # Example: counter feature plugin
-│   ├── CounterCore.scala                # Example: counter RTL logic
-│   ├── ThresholdPlugin.scala            # Example: threshold comparator plugin
-│   ├── ThresholdCore.scala              # Example: threshold RTL logic
-│   └── TopIoExportPlugin.scala          # IO wiring hub
-├── src/test/scala/mydesign/
-│   ├── CounterCoreTest.scala            # Counter tests (4 tests)
-│   ├── ThresholdCoreTest.scala          # Threshold tests (3 tests)
-│   ├── ElaborationTest.scala            # Smoke test: design elaborates
-│   └── testhelpers/
-│       ├── CounterHarness.scala         # Sim wrapper for CounterCore
-│       └── ThresholdHarness.scala       # Sim wrapper for ThresholdCore
-├── docs/
-│   └── ARCHITECTURE.md                  # Full design pattern documentation
-└── rtl/                                 # Generated Verilog
-```
+- [build.sbt](build.sbt) — SpinalHDL and ScalaTest build dependencies configuration.
+- [src/main/scala/mydesign/util/BuildHelper.scala](src/main/scala/mydesign/util/BuildHelper.scala) — Core compilation utilities featuring automatic reflective namespacing via `PrefixArea` and type-safe recursive input pulling via `autoPull` (with built-in high-severity `SpinalError` custom compiler diagnostic guard).
+- [src/main/scala/mydesign/Params.scala](src/main/scala/mydesign/Params.scala) — Global hardware parameters, execution configuration (`DebugBuild` vs `ProductionBuild`), and plugin list.
+- [src/main/scala/mydesign/Top.scala](src/main/scala/mydesign/Top.scala) — Dynamic top-level boundary wrapper, featuring consolidated APB3 port bundle interfaces to eliminate loose wire explosions.
+- [src/main/scala/mydesign/GenVerilog.scala](src/main/scala/mydesign/GenVerilog.scala) — Main elaboration generation script for Verilog targets.
+- [src/main/scala/mydesign/TopIoExportPlugin.scala](src/main/scala/mydesign/TopIoExportPlugin.scala) — The dynamic fiber routing export plugin, utilizing promises to resolve port declarations asynchronously.
+- [src/main/scala/mydesign/PipelineTraits.scala](src/main/scala/mydesign/PipelineTraits.scala) — Declarative trait interfaces to pass inputs/outputs cleanly.
+- [src/main/scala/mydesign/TimerPlugin.scala](src/main/scala/mydesign/TimerPlugin.scala) — Peripheral timer plugin wrapping [src/main/scala/mydesign/TimerCore.scala](src/main/scala/mydesign/TimerCore.scala).
+- [src/main/scala/mydesign/ComparatorPlugin.scala](src/main/scala/mydesign/ComparatorPlugin.scala) — Signal comparator plugin.
+- [src/main/scala/mydesign/ScalePlugin.scala](src/main/scala/mydesign/ScalePlugin.scala) — High-performance arithmetic compression pipeline plugin.
+- [src/main/scala/mydesign/HysteresisPlugin.scala](src/main/scala/mydesign/HysteresisPlugin.scala) — Chatter reduction filtering plugin.
+- [src/main/scala/mydesign/ApbMonitorPlugin.scala](src/main/scala/mydesign/ApbMonitorPlugin.scala) — Configurable APB3 register snooper.
+- [src/it/scala/mydesign/GoldenIntegrationTest.scala](src/it/scala/mydesign/GoldenIntegrationTest.scala) — Integration test verifying generated output RTL matches established golden baselines.
+- [src/test/scala/mydesign/TimerCoreTest.scala](src/test/scala/mydesign/TimerCoreTest.scala) — Simulation tests verification suites.
 
 ## Architecture Overview
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete design guide.
+See the detailed guide files at [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md) for full explanations of the design rules and patterns.
 
-**Key pattern:** Plugin wraps Core, publishes Handles. TopIoExportPlugin wires Handles to IO.
+**Key dynamic pattern:** Plugins wrap core hardware modules and publish asynchronous handles (`Handle[T]`). Downstream core blocks fetch these handles during elaboration, allowing completely order-independent connection of complex busses and signals.
 
 ```
   Params.plugins: Seq[FiberPlugin]
         │
         ▼
   ┌──────────────┐   Handle[UInt]   ┌──────────────────┐   Handle[Bool]
-  │CounterPlugin │ ──────────────►  │ThresholdPlugin   │ ──────────────►
-  │  └ CounterCore│                 │  └ ThresholdCore │
+  │ TimerPlugin  │ ──────────────►  │ ComparatorPlugin │ ──────────────►
+  │  └ TimerCore │                 │  └ ComparatorCore│
   └──────────────┘                  └──────────────────┘
         ▲                                                        │
         │ Handle[Bool]                                           │
   ┌─────┴──────────────────────────────────────────────────────┐ │
   │                 TopIoExportPlugin                           │◄┘
-  │  Phase 1: load inputs (enable → CounterPlugin.enableIn)    │
-  │  Phase 2: await outputs (count, aboveFlag → MyTop.io)      │
+  │  Handles clock domain linking, assigns top-level APB3 bus, │
+  │  and wires external diagnostic pins asynchronously.        │
   └────────────────────────────────────────────────────────────┘
 ```
 
 ## Using as a Template
 
-1. **Clone/fork** this repo
-2. **Rename the package** from `mydesign` to your project name
-3. **Delete** the example plugins (`Counter*`, `Threshold*`) or keep them as reference
-4. **Add your plugins** following the pattern in `docs/ARCHITECTURE.md`
-5. **Update `Params.scala`** with your parameters and plugin list
-6. **Update `Top.scala`** with your IO ports
-7. **Update `TopIoExportPlugin.scala`** to wire your new Handles
+1. **Clone this repository** to seed your workspace.
+2. **Rename the Scala packages** to match your design namespaces.
+3. **Configure parameters** in [src/main/scala/mydesign/Params.scala](src/main/scala/mydesign/Params.scala), selecting either a flat physical footprint (`ProductionBuild`) or partitioned layout blocks (`DebugBuild`).
+4. **Declare physical interfaces** via cohesive bundles on your top-level boundary wrapper in [src/main/scala/mydesign/Top.scala](src/main/scala/mydesign/Top.scala).
+5. **Add new plugins** that publish asynchronous signal handles to build complex pipelines.
+6. **Utilize automated reflective prefixes** (`PrefixArea`) to capture logical register structures cleanly without naming-collision hazards.
+7. **Pull signals dynamically** across component boundaries using automated lists (`buildBlock` and `autoPull`) in [src/main/scala/mydesign/util/BuildHelper.scala](src/main/scala/mydesign/util/BuildHelper.scala).
+8. **Verify your block logic** under unit simulation files like [src/test/scala/mydesign/TimerCoreTest.scala](src/test/scala/mydesign/TimerCoreTest.scala) and declare golden baseline checks inside [src/it/scala/mydesign/GoldenIntegrationTest.scala](src/it/scala/mydesign/GoldenIntegrationTest.scala).
 
-## Dependencies
+## Technical Dependencies
 
 | Dependency | Version | Purpose |
 |------------|---------|---------|
-| Scala | 2.13.16 | Language |
-| sbt | 1.10.11 | Build tool |
-| SpinalHDL | 1.14.0 | HDL framework |
-| ScalaTest | 3.2.18 | Test framework |
-| Verilator | 4.x+ | RTL simulation |
+| Scala | 2.13.16 | Language and type elaboration |
+| sbt | 1.10.11 | System builder tool |
+| SpinalHDL | 1.14.0 | Advanced dynamic hardware description framework |
+| ScalaTest | 3.2.18 | Unit validation framework |
+| Verilator | 4.x+ | Simulation engine compiler |
 
-## Commands
+## Common Developer Commands
 
 | Command | Description |
 |---------|-------------|
-| `sbt "runMain mydesign.GenVerilog"` | Generate Verilog to `rtl/` |
-| `sbt test` | Run all tests |
-| `sbt "testOnly mydesign.*"` | Run tests matching pattern |
-| `sbt compile` | Compile without generating Verilog |
+| `sbt "runMain mydesign.GenVerilog"` | Elaborate the hardware graph and generate Verilog targets |
+| `sbt test` | Run entire unit test simulation suite |
+| `sbt "testOnly mydesign.*CoreTest"` | Run tests matching specific core patterns |
+| `sbt "it:test"` | Run integration checks comparing RTL emissions with baseline files |
+| `sbt compile` | Quickly check for Scala compilation errors |
 
 ## License
 
-MIT — feel free to use this template for any project.
+MIT — feel free to use this template as a modern baseline structure for any FPGA or ASIC IP.
