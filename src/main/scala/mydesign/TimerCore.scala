@@ -2,6 +2,7 @@ package mydesign
 
 import spinal.core._
 import spinal.lib._
+import mydesign.util.PrefixArea
 
 /** Bus-agnostic free-running timer core.
   *
@@ -29,13 +30,14 @@ object TimerCore {
     require(enable != null, "enable signal is required")
     require(width >= 1,     s"width must be >= 1, got $width")
 
-    val countReg = Reg(UInt(width bits)) init 0
-    countReg.setName(s"${periphName}_countReg")
+    val logic = new PrefixArea(periphName) {
+      val countReg = Reg(UInt(width bits)) init 0
 
-    when(enable) {
-      countReg := countReg + 1
+      when(enable) {
+        countReg := countReg + 1
+      }
     }
 
-    Io(count = countReg)
+    Io(count = logic.countReg)
   }
 }

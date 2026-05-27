@@ -2,6 +2,7 @@ package mydesign
 
 import spinal.core._
 import spinal.lib._
+import mydesign.util.PrefixArea
 
 /** Bus-agnostic edge detector core.
   *
@@ -37,25 +38,24 @@ object EdgeDetectorCore {
   ): Io = {
     require(input != null, "input signal is required")
 
-    // ── Stage 1: capture previous value ──────────────────────────
-    // Named Area — signals appear as `prevStage_prev` in waveforms.
-    val prevStage = new Area {
-      val prev = RegNext(input) init False
-      prev.setName(s"${periphName}_prev")
-    }
+    val logic = new PrefixArea(periphName) {
+      // ── Stage 1: capture previous value ──────────────────────────
+      // Named Area — signals appear nested as `${periphName}_prevStage_prev`.
+      val prevStage = new Area {
+        val prev = RegNext(input) init False
+      }
 
-    // ── Stage 2: detect and register edge events ──────────────────
-    // Named Area — signals appear as `edgeStage_rising` / `edgeStage_falling`.
-    val edgeStage = new Area {
-      val rising  = RegNext(input && !prevStage.prev) init False
-      val falling = RegNext(!input && prevStage.prev) init False
-      rising.setName(s"${periphName}_rising")
-      falling.setName(s"${periphName}_falling")
+      // ── Stage 2: detect and register edge events ──────────────────
+      // Named Area — signals appear nested as `${periphName}_edgeStage_rising`.
+      val edgeStage = new Area {
+        val rising  = RegNext(input && !prevStage.prev) init False
+        val falling = RegNext(!input && prevStage.prev) init False
+      }
     }
 
     Io(
-      rising  = edgeStage.rising,
-      falling = edgeStage.falling
+      rising  = logic.edgeStage.rising,
+      falling = logic.edgeStage.falling
     )
   }
 }

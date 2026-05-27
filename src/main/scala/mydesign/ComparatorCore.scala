@@ -2,6 +2,7 @@ package mydesign
 
 import spinal.core._
 import spinal.lib._
+import mydesign.util.PrefixArea
 
 /** Bus-agnostic threshold comparator core.
   *
@@ -26,11 +27,12 @@ object ComparatorCore {
   ): Io = {
     require(countIn != null, "countIn signal is required")
 
-    val aboveReg = RegInit(False)
-    aboveReg.setName(s"${periphName}_aboveReg")
+    val logic = new PrefixArea(periphName) {
+      val aboveReg = RegInit(False)
 
-    aboveReg := countIn >= threshold
+      aboveReg := countIn >= threshold
+    }
 
-    Io(above = aboveReg)
+    Io(above = logic.aboveReg)
   }
 }
