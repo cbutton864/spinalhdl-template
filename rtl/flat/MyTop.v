@@ -1,9 +1,8 @@
 // Generator : SpinalHDL v1.14.0    git head : 95a5e6c65c54acfc4707c8fe6ef8b5d297cfcbde
 // Component : MyTop
-// Git hash  : 10b6bc47a670f40474409cbc81cf6e91dbf80040
+// Git hash  : ff19e29ce3b916d620956902527df4458707c875
 
-`timescale 1ns/1ps
-
+`timescale 1ns/1ps 
 module MyTop (
   input  wire          enable,
   output wire [7:0]    count,

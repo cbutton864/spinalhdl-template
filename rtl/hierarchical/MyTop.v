@@ -1,9 +1,8 @@
 // Generator : SpinalHDL v1.14.0    git head : 95a5e6c65c54acfc4707c8fe6ef8b5d297cfcbde
 // Component : MyTop
-// Git hash  : 10b6bc47a670f40474409cbc81cf6e91dbf80040
+// Git hash  : ff19e29ce3b916d620956902527df4458707c875
 
-`timescale 1ns/1ps
-
+`timescale 1ns/1ps 
 module MyTop (
   input  wire          enable,
   output wire [7:0]    count,
@@ -45,29 +44,6 @@ module MyTop (
       comparator_aboveReg <= 1'b0;
     end else begin
       comparator_aboveReg <= (8'h80 <= timer_TimerSub_outSig);
-    end
-  end
-
-
-endmodule
-
-module timer_TimerSub (
-  output wire [7:0]    outSig,
-  input  wire          pulledInputs,
-  input  wire          clk,
-  input  wire          reset
-);
-
-  reg        [7:0]    timer_countReg;
-
-  assign outSig = timer_countReg;
-  always @(posedge clk or posedge reset) begin
-    if(reset) begin
-      timer_countReg <= 8'h0;
-    end else begin
-      if(pulledInputs) begin
-        timer_countReg <= (timer_countReg + 8'h01);
-      end
     end
   end
 

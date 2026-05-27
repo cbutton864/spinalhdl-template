@@ -7,6 +7,7 @@ object GenVerilog extends App {
   println("Generating FLAT Production Verilog to 'rtl/flat/'...")
   SpinalConfig(
     targetDirectory              = "rtl/flat",
+    oneFilePerComponent          = true,
     defaultClockDomainFrequency  = FixedFrequency(100 MHz),
     defaultConfigForClockDomains = ClockDomainConfig(
       resetKind        = ASYNC,
@@ -21,6 +22,7 @@ object GenVerilog extends App {
   println("Generating HIERARCHICAL Debug Verilog to 'rtl/hierarchical/'...")
   SpinalConfig(
     targetDirectory              = "rtl/hierarchical",
+    oneFilePerComponent          = true,
     defaultClockDomainFrequency  = FixedFrequency(100 MHz),
     defaultConfigForClockDomains = ClockDomainConfig(
       resetKind        = ASYNC,
