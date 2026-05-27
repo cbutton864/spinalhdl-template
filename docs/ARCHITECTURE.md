@@ -56,6 +56,7 @@ project-root/
 │   │   ├── Top.scala                 # Top Component (static IO only)
 │   │   ├── GenVerilog.scala          # Verilog generation entry point
 │   │   ├── PipelineTraits.scala      # Stage-boundary service traits
+│   │   ├── PipelineSubsystemPlugin.scala # Production composite grouping example
 │   │   ├── TimerPlugin.scala         # Stage 1: signal source
 │   │   ├── TimerCore.scala
 │   │   ├── PassThroughPlugin.scala   # Stage 2 identity (swap with ScalePlugin)
@@ -66,12 +67,17 @@ project-root/
 │   │   ├── EdgeDetectorPlugin.scala  # Optional stage 4: edge detection
 │   │   ├── EdgeDetectorCore.scala    # Demonstrates named-Area pipeline stages
 │   │   ├── ApbMonitorPlugin.scala    # Optional side channel: APB3 register read-back
+│   │   └── util/
+│   │       ├── BuildHelper.scala              # Core autoPull and PrefixArea utilities
+│   │       └── SubsystemCompositePlugin.scala # Generic composite subsystem wrapper plugin
 │   │   └── TopIoExportPlugin.scala   # Single IO wiring point
 │   └── test/scala/<pkg>/
 │       ├── TimerCoreTest.scala
 │       ├── ComparatorCoreTest.scala
 │       ├── EdgeDetectorCoreTest.scala
 │       ├── ElaborationTest.scala
+│       ├── HierarchyCornerCasesTest.scala # Dynamic boundary testing
+│       ├── SubsystemCompositeTest.scala  # Testing production PipelineSubsystemPlugin
 │       └── testhelpers/
 │           ├── TimerHarness.scala
 │           ├── ComparatorHarness.scala
@@ -394,22 +400,20 @@ which Phase 1 has not loaded yet. Deadlock. Loads always go first.
 
 ---
 
-## 8. Params: Centralised Configuration
+## 8. Params & Elaboration Modes
 
 ```scala
 case class Params(
     sysClkHz:   HertzNumber = 100 MHz,
     timerWidth: Int         = 8,
-    threshold:  Int         = 128
+    threshold:  Int         = 128,
+    globalHierarchy: Option[Boolean] = None
 ) {
   def plugins: Seq[FiberPlugin] = Seq(
-    TimerPlugin(width = timerWidth),           // Stage 1: signal source
+    TimerPlugin(width = timerWidth, hierarchical = globalHierarchy.getOrElse(false)), // Stage 1
     PassThroughPlugin(),                        // Stage 2: swap with ScalePlugin(shift = 2)
     ComparatorPlugin(threshold = threshold),    // Stage 3: swap with HysteresisPlugin(lo, hi)
     TopIoExportPlugin()
-    // Optional stages:
-    // EdgeDetectorPlugin(),
-    // ApbMonitorPlugin(),
   )
 }
 ```
@@ -417,7 +421,9 @@ case class Params(
 - **`def plugins`** (not `val`): fresh instances on every call; required for test re-elaboration
 - **Plugin list order does not matter**: Fiber resolves all dependencies
 - **All constants pass through Params**: no magic numbers in Cores or Plugins
-- **Stage 2 and Stage 3 are labelled swap points**: comment marks what the alternative is
+- **Elaboration Modes Configuration:** 
+  - `DebugBuild` Mode: Compiles modules inside explicit sub-component boundaries. Recommended for floorplanning, physical area partitions, and simulator wave tracing.
+  - `ProductionBuild` Mode: Flatly merges and compiles registers for global area optimization steps.
 
 ---
 
@@ -431,13 +437,14 @@ class MyTop(params: Params = Params()) extends Component {
     val aboveFlag   = out Bool()
     val risingEdge  = out Bool()
     val fallingEdge = out Bool()
-    val apb_PADDR   = in  UInt(8 bits)
-    // ... full APB3 interface
+    val apb         = slave(Apb3(Apb3Config(addressWidth = 8, dataWidth = 32)))
   }
 
   io.enable.setName("enable")
   io.count.setName("count")
-  // ... setName for every port
+  io.aboveFlag.setName("aboveFlag")
+  io.risingEdge.setName("risingEdge")
+  io.fallingEdge.setName("fallingEdge")
 
   val host = new PluginHost
   host.asHostOf(params.plugins)
