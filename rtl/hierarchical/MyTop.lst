@@ -1,2 +1,3 @@
 rtl/hierarchical/timer_TimerSub.v
+rtl/hierarchical/comparator_ComparatorSub.v
 rtl/hierarchical/MyTop.v

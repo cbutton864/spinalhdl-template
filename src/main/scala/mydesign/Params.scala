@@ -48,9 +48,9 @@ case class Params(
     *   ApbMonitorPlugin()   — side channel: exposes timer/threshold state via APB3
     */
   def plugins: Seq[FiberPlugin] = Seq(
-    TimerPlugin(width = timerWidth, buildEnv = buildEnv),  // Stage 1: signal source
-    PassThroughPlugin(),                                    // Stage 2: swap ↔ ScalePlugin(shift = 2)
-    ComparatorPlugin(threshold = threshold),                // Stage 3: swap ↔ HysteresisPlugin(lo, hi)
+    TimerPlugin(width = timerWidth, buildEnv = buildEnv),            // Stage 1: signal source
+    PassThroughPlugin(),                                              // Stage 2: swap ↔ ScalePlugin(shift = 2)
+    ComparatorPlugin(threshold = threshold, buildEnv = buildEnv),    // Stage 3: swap ↔ HysteresisPlugin(lo, hi)
     TopIoExportPlugin()
   )
 }

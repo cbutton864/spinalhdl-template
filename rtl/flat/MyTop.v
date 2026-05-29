@@ -24,12 +24,14 @@ module MyTop (
   wire                TimerPlugin_logic_enable;
   wire       [7:0]    TimerPlugin_logic_timerCount;
   reg        [7:0]    timer_countReg;
+  wire                ComparatorPlugin_logic_above;
   reg                 comparator_aboveReg;
 
   assign TimerPlugin_logic_enable = enable;
   assign TimerPlugin_logic_timerCount = timer_countReg;
   assign count = TimerPlugin_logic_timerCount;
-  assign above_flag = comparator_aboveReg;
+  assign ComparatorPlugin_logic_above = comparator_aboveReg;
+  assign above_flag = ComparatorPlugin_logic_above;
   assign rising_edge = 1'b0;
   assign falling_edge = 1'b0;
   assign apb_PREADY = 1'b1;

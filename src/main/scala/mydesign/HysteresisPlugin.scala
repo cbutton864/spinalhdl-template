@@ -3,6 +3,7 @@ package mydesign
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.misc.plugin._
+import mydesign.util._
 
 /** Stage 3 — hysteresis threshold: eliminates chatter near the trip point.
   *
@@ -22,9 +23,10 @@ import spinal.lib.misc.plugin._
   *   - `aboveFlag: Handle[Bool]` — latched threshold result
   */
 case class HysteresisPlugin(
-    loThreshold: Int    = 64,
-    hiThreshold: Int    = 192,
-    periphName:  String = "hysteresis"
+    loThreshold: Int      = 64,
+    hiThreshold: Int      = 192,
+    periphName:  String   = "hysteresis",
+    buildEnv:    BuildEnv = BuildEnv()
 ) extends FiberPlugin with ThresholdResult {
 
   require(loThreshold >= 0,
@@ -36,14 +38,23 @@ case class HysteresisPlugin(
 
   val logic = during build new Area {
     val signal = host[ProcessedSignal].processedOut.await
+    val hier   = buildEnv.useHierarchy(false)
 
-    val core = HysteresisCore.build(
-      periphName  = periphName,
-      loThreshold = loThreshold,
-      hiThreshold = hiThreshold,
-      signal      = signal
-    )
+    val above = BuildHelper.buildBlock(
+      HardType(Bool()),
+      hier,
+      s"${periphName}_HysteresisSub",
+      signal
+    ) { pulledSignal => outSig =>
+      val core = HysteresisCore.build(
+        periphName  = periphName,
+        loThreshold = loThreshold,
+        hiThreshold = hiThreshold,
+        signal      = pulledSignal
+      )
+      outSig := core.above
+    }
 
-    aboveFlag.load(core.above)
+    aboveFlag.load(above)
   }
 }

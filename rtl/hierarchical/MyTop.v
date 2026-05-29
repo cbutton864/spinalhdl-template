@@ -22,8 +22,8 @@ module MyTop (
 );
 
   wire       [11:0]   timer_TimerSub_outSig;
+  wire                comparator_ComparatorSub_outSig;
   wire                TimerPlugin_logic_enable;
-  reg                 comparator_aboveReg;
 
   timer_TimerSub timer_TimerSub (
     .outSig       (timer_TimerSub_outSig[11:0]), //o
@@ -31,21 +31,19 @@ module MyTop (
     .clk          (clk                        ), //i
     .reset        (reset                      )  //i
   );
+  comparator_ComparatorSub comparator_ComparatorSub (
+    .outSig       (comparator_ComparatorSub_outSig), //o
+    .pulledInputs (timer_TimerSub_outSig[11:0]    ), //i
+    .clk          (clk                            ), //i
+    .reset        (reset                          )  //i
+  );
   assign TimerPlugin_logic_enable = enable;
   assign count = timer_TimerSub_outSig;
-  assign above_flag = comparator_aboveReg;
+  assign above_flag = comparator_ComparatorSub_outSig;
   assign rising_edge = 1'b0;
   assign falling_edge = 1'b0;
   assign apb_PREADY = 1'b1;
   assign apb_PRDATA = 32'h0;
   assign apb_PSLVERR = 1'b0;
-  always @(posedge clk or posedge reset) begin
-    if(reset) begin
-      comparator_aboveReg <= 1'b0;
-    end else begin
-      comparator_aboveReg <= (12'h200 <= timer_TimerSub_outSig);
-    end
-  end
-
 
 endmodule

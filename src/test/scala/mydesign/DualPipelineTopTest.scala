@@ -17,10 +17,10 @@ class DualPipelineTopTest extends AnyFunSuite {
   )
 
   test("DualPipelineTop elaborates in HierarchicalBuild mode") {
-    cfg.generateVerilog(new DualPipelineTop(BuildEnv(HierarchicalBuild)))
+    cfg.generateVerilog(new DualPipelineTop(DualPipelineParams(buildEnv = BuildEnv(HierarchicalBuild))))
   }
 
   test("DualPipelineTop elaborates in FlatBuild mode") {
-    cfg.generateVerilog(new DualPipelineTop(BuildEnv(FlatBuild)))
+    cfg.generateVerilog(new DualPipelineTop(DualPipelineParams(buildEnv = BuildEnv(FlatBuild))))
   }
 }

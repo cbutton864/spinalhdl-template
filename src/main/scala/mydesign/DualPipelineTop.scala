@@ -6,20 +6,43 @@ import spinal.lib._
 import spinal.lib.misc.plugin._
 import mydesign.util._
 
-/** DualPipelineTop is a production architecture example which instantiates:
-  * 1. A standard pipeline (Pipeline A) — build mode controlled by buildEnv
-  * 2. An identical pipeline (Pipeline B) wrapped inside a composite subsystem plugin
+/** Hardware parameters for DualPipelineTop.
   *
-  * Allows a direct side-by-side comparison of flat vs composite hierarchy in the
-  * generated Verilog. Pass BuildEnv(FlatBuild) for fully flat output or
-  * BuildEnv(HierarchicalBuild) for full component hierarchy.
+  * Pipelines A and B may have independent widths and thresholds.
+  * A single `buildEnv` controls the hierarchy strategy for both.
   */
-class DualPipelineTop(buildEnv: BuildEnv = BuildEnv(mode = HierarchicalBuild)) extends Component {
+case class DualPipelineParams(
+    widthA:     Int      = 8,
+    thresholdA: Int      = 128,
+    widthB:     Int      = 8,
+    thresholdB: Int      = 128,
+    buildEnv:   BuildEnv = BuildEnv(mode = HierarchicalBuild)
+) {
+  require(widthA >= 1 && widthA <= 32, s"widthA must be 1..32, got $widthA")
+  require(thresholdA >= 0, s"thresholdA must be >= 0, got $thresholdA")
+  require(widthA >= 32 || thresholdA < (1 << widthA),
+    s"thresholdA ($thresholdA) doesn't fit in $widthA-bit timer (max ${(1 << widthA) - 1})")
+
+  require(widthB >= 1 && widthB <= 32, s"widthB must be 1..32, got $widthB")
+  require(thresholdB >= 0, s"thresholdB must be >= 0, got $thresholdB")
+  require(widthB >= 32 || thresholdB < (1 << widthB),
+    s"thresholdB ($thresholdB) doesn't fit in $widthB-bit timer (max ${(1 << widthB) - 1})")
+}
+
+/** Side-by-side demonstration of flat vs composite hierarchy.
+  *
+  * Pipeline A — standard three-stage pipeline (Timer → PassThrough → Comparator).
+  * Pipeline B — same logic wrapped inside a PipelineSubsystemPlugin composite boundary.
+  *
+  * Pass DualPipelineParams(buildEnv = BuildEnv(FlatBuild)) for fully flat output or
+  * DualPipelineParams(buildEnv = BuildEnv(HierarchicalBuild)) for full component hierarchy.
+  */
+class DualPipelineTop(params: DualPipelineParams = DualPipelineParams()) extends Component {
   val io = new Bundle {
-    val enable = in Bool()
-    val countA = out UInt(8 bits)
+    val enable = in  Bool()
+    val countA = out UInt(params.widthA bits)
     val flagA  = out Bool()
-    val countB = out UInt(8 bits)
+    val countB = out UInt(params.widthB bits)
     val flagB  = out Bool()
   }
   io.enable.setName("enable")
@@ -30,10 +53,10 @@ class DualPipelineTop(buildEnv: BuildEnv = BuildEnv(mode = HierarchicalBuild)) e
 
   val parentHost = new PluginHost()
 
-  // Pipeline A — build mode from buildEnv
-  val timerA = TimerPlugin(width = 8, buildEnv = buildEnv, periphName = "timerA")
+  // Pipeline A — standard flat or hierarchical pipeline
+  val timerA = TimerPlugin(width = params.widthA, buildEnv = params.buildEnv, periphName = "timerA")
   val passA  = PassThroughPlugin()
-  val compA  = ComparatorPlugin(threshold = 128, periphName = "comparatorA")
+  val compA  = ComparatorPlugin(threshold = params.thresholdA, periphName = "comparatorA", buildEnv = params.buildEnv)
 
   val ioExportA = new FiberPlugin {
     val logic = during build new Area {
@@ -43,12 +66,13 @@ class DualPipelineTop(buildEnv: BuildEnv = BuildEnv(mode = HierarchicalBuild)) e
     }
   }
 
-  // Pipeline B — composite subsystem, build mode from buildEnv
+  // Pipeline B — composite subsystem boundary
   val subSystemB = PipelineSubsystemPlugin(
-    width         = 8,
-    threshold     = 128,
-    buildEnv      = buildEnv,
-    subsystemName = "PipelineBSubsystem"
+    width         = params.widthB,
+    threshold     = params.thresholdB,
+    buildEnv      = params.buildEnv,
+    subsystemName = "PipelineBSubsystem",
+    periphName    = "timerB"
   )
 
   val ioExportB = new FiberPlugin {

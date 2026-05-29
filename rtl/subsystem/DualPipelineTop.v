@@ -16,8 +16,8 @@ module DualPipelineTop (
   wire       [7:0]    timerA_TimerSub_outSig;
   wire       [7:0]    PipelineBSubsystem_countOut;
   wire                PipelineBSubsystem_flagOut;
+  wire                comparatorA_ComparatorSub_outSig;
   wire                TimerPlugin_logic_enable;
-  reg                 comparatorA_aboveReg;
 
   timerA_TimerSub timerA_TimerSub (
     .outSig       (timerA_TimerSub_outSig[7:0]), //o
@@ -32,18 +32,16 @@ module DualPipelineTop (
     .clk        (clk                             ), //i
     .reset      (reset                           )  //i
   );
+  comparatorA_ComparatorSub comparatorA_ComparatorSub (
+    .outSig       (comparatorA_ComparatorSub_outSig), //o
+    .pulledInputs (timerA_TimerSub_outSig[7:0]     ), //i
+    .clk          (clk                             ), //i
+    .reset        (reset                           )  //i
+  );
   assign TimerPlugin_logic_enable = enable;
   assign countA = timerA_TimerSub_outSig;
   assign countB = PipelineBSubsystem_countOut;
   assign flagB = PipelineBSubsystem_flagOut;
-  assign flagA = comparatorA_aboveReg;
-  always @(posedge clk or posedge reset) begin
-    if(reset) begin
-      comparatorA_aboveReg <= 1'b0;
-    end else begin
-      comparatorA_aboveReg <= (8'h80 <= timerA_TimerSub_outSig);
-    end
-  end
-
+  assign flagA = comparatorA_ComparatorSub_outSig;
 
 endmodule

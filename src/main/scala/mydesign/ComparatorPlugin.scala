@@ -4,6 +4,7 @@ import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
 import spinal.lib.misc.plugin._
+import mydesign.util._
 
 /** Stage 3 — simple level comparator.
   *
@@ -20,22 +21,27 @@ import spinal.lib.misc.plugin._
   *   - `aboveFlag: Handle[Bool]` — true when processedOut >= threshold
   */
 case class ComparatorPlugin(
-    threshold: Int = 128,
-    periphName: String = "comparator"
+    threshold:  Int      = 128,
+    periphName: String   = "comparator",
+    buildEnv:   BuildEnv = BuildEnv()
 ) extends FiberPlugin with ThresholdResult {
 
-  // ── Published Handles ──────────────────────────────────────
   val aboveFlag: Handle[Bool] = Handle[Bool]()
 
   val logic = during build new Area {
     val countVal = host[ProcessedSignal].processedOut.await
+    val hier     = buildEnv.useHierarchy(false)
 
-    val core = ComparatorCore.build(
-      periphName = periphName,
-      threshold  = threshold,
-      countIn    = countVal
-    )
+    val above = BuildHelper.buildBlock(
+      HardType(Bool()),
+      hier,
+      s"${periphName}_ComparatorSub",
+      countVal
+    ) { pulledCount => outSig =>
+      val core = ComparatorCore.build(periphName = periphName, threshold = threshold, countIn = pulledCount)
+      outSig := core.above
+    }
 
-    aboveFlag.load(core.above)
+    aboveFlag.load(above)
   }
 }

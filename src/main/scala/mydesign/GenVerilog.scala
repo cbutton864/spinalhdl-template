@@ -46,7 +46,7 @@ object GenVerilog extends App {
     )
   ).generateVerilog {
     // For build 3, we demonstrate compiling a modular subsystem layout using DualPipelineTop as our top design shell!
-    val top = new DualPipelineTop(BuildEnv(HierarchicalBuild))
+    val top = new DualPipelineTop(DualPipelineParams(buildEnv = BuildEnv(HierarchicalBuild)))
     top
   }
 }
