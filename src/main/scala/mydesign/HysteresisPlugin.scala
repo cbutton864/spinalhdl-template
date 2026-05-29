@@ -6,21 +6,25 @@ import spinal.lib.misc.plugin._
 
 /** Stage 3 — hysteresis threshold: eliminates chatter near the trip point.
   *
-  * Latches high when signal >= hiThreshold.
-  * Latches low  when signal <  loThreshold.
-  * Output is unchanged while signal is between the two thresholds.
-  *
-  * Implements ThresholdResult — swap with ComparatorPlugin for a
-  * simple level compare without touching Stage 2 or Stage 4.
+  * Delegates to HysteresisCore for all RTL. Implements ThresholdResult so
+  * Stage 4 (EdgeDetectorPlugin) and TopIoExportPlugin consume the result
+  * via the trait — swap with ComparatorPlugin freely.
   *
   * Example with 8-bit signal, lo=64, hi=192:
-  *   signal rises  past 192 → aboveFlag goes True
-  *   signal between 64–192  → aboveFlag holds its last value
-  *   signal falls below  64 → aboveFlag goes False
+  *   signal rises  to 192+  → aboveFlag goes True
+  *   signal between 64–191  → aboveFlag holds its last value
+  *   signal falls below 64  → aboveFlag goes False
+  *
+  * Consumes:
+  *   - `host[ProcessedSignal].processedOut` — stage 2 output
+  *
+  * Publishes:
+  *   - `aboveFlag: Handle[Bool]` — latched threshold result
   */
 case class HysteresisPlugin(
-    loThreshold: Int = 64,
-    hiThreshold: Int = 192
+    loThreshold: Int    = 64,
+    hiThreshold: Int    = 192,
+    periphName:  String = "hysteresis"
 ) extends FiberPlugin with ThresholdResult {
 
   require(loThreshold >= 0,
@@ -33,12 +37,13 @@ case class HysteresisPlugin(
   val logic = during build new Area {
     val signal = host[ProcessedSignal].processedOut.await
 
-    val aboveReg = RegInit(False)
-    aboveReg.setName("hysteresis_aboveReg")
+    val core = HysteresisCore.build(
+      periphName  = periphName,
+      loThreshold = loThreshold,
+      hiThreshold = hiThreshold,
+      signal      = signal
+    )
 
-    when(signal >= U(hiThreshold)) { aboveReg := True  }
-    when(signal <  U(loThreshold)) { aboveReg := False }
-
-    aboveFlag.load(aboveReg)
+    aboveFlag.load(core.above)
   }
 }

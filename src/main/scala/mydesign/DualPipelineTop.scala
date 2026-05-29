@@ -4,15 +4,17 @@ import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
 import spinal.lib.misc.plugin._
-import mydesign.util.BuildHelper
+import mydesign.util._
 
 /** DualPipelineTop is a production architecture example which instantiates:
-  * 1. A FLAT standard pipeline (Pipeline A)
-  * 2. An identical hierarchical pipeline (Pipeline B) wrapped inside a single composite plugin using BuildHelper.
+  * 1. A standard pipeline (Pipeline A) — build mode controlled by buildEnv
+  * 2. An identical pipeline (Pipeline B) wrapped inside a composite subsystem plugin
   *
-  * This allows a direct side-by-side comparison of flat vs composite hierarchy in the generated Verilog!
+  * Allows a direct side-by-side comparison of flat vs composite hierarchy in the
+  * generated Verilog. Pass BuildEnv(FlatBuild) for fully flat output or
+  * BuildEnv(HierarchicalBuild) for full component hierarchy.
   */
-class DualPipelineTop(hierarchicalB: Boolean = true) extends Component {
+class DualPipelineTop(buildEnv: BuildEnv = BuildEnv(mode = HierarchicalBuild)) extends Component {
   val io = new Bundle {
     val enable = in Bool()
     val countA = out UInt(8 bits)
@@ -26,16 +28,14 @@ class DualPipelineTop(hierarchicalB: Boolean = true) extends Component {
   io.countB.setName("countB")
   io.flagB.setName("flagB")
 
-  // --- Pipeline A: Standard Flat Plugins ---
   val parentHost = new PluginHost()
 
-  // We define standard plugins for Pipeline A, but set timerA to be hierarchical!
-  val timerA = TimerPlugin(width = 8, hierarchical = true, periphName = "timerA")
+  // Pipeline A — build mode from buildEnv
+  val timerA = TimerPlugin(width = 8, buildEnv = buildEnv, periphName = "timerA")
   val passA  = PassThroughPlugin()
   val compA  = ComparatorPlugin(threshold = 128, periphName = "comparatorA")
-  
-  // Custom simple IO export plugin for Pipeline A
-  case class IoExportA() extends FiberPlugin {
+
+  val ioExportA = new FiberPlugin {
     val logic = during build new Area {
       timerA.enableIn.load(io.enable)
       io.countA := timerA.countOut.await
@@ -43,34 +43,24 @@ class DualPipelineTop(hierarchicalB: Boolean = true) extends Component {
     }
   }
 
-  // --- Pipeline B: Composite Grouped Subsystem ---
+  // Pipeline B — composite subsystem, build mode from buildEnv
   val subSystemB = PipelineSubsystemPlugin(
-    width        = 8,
-    threshold    = 128,
-    hierarchical = hierarchicalB,
+    width         = 8,
+    threshold     = 128,
+    buildEnv      = buildEnv,
     subsystemName = "PipelineBSubsystem"
   )
-  
-  case class IoExportB() extends FiberPlugin {
+
+  val ioExportB = new FiberPlugin {
     val logic = during build new Area {
       subSystemB.enableIn.load(io.enable)
-      
-      val countBWire = UInt(8 bits)
-      val flagBWire  = Bool()
-      countBWire.setName("sub_countB_out")
-      flagBWire.setName("sub_flagB_out")
-      
-      countBWire := BuildHelper.autoPull(subSystemB.countOut.await, hierarchicalB)
-      flagBWire  := BuildHelper.autoPull(subSystemB.flagOut.await, hierarchicalB)
-      
-      io.countB := countBWire
-      io.flagB  := flagBWire
+      io.countB := subSystemB.countOut.await
+      io.flagB  := subSystemB.flagOut.await
     }
   }
 
-  // Register everything to the parent host
   parentHost.asHostOf(Seq(
-    timerA, passA, compA, IoExportA(),
-    subSystemB, IoExportB()
+    timerA, passA, compA, ioExportA,
+    subSystemB, ioExportB
   ))
 }

@@ -22,6 +22,8 @@ case class ScalePlugin(shift: Int = 2) extends FiberPlugin with ProcessedSignal 
 
   val logic = during build new Area {
     val signal = host[SignalSource].signalOut.await
+    require(shift < signal.getWidth,
+      s"shift ($shift) must be < signal width (${signal.getWidth})")
     // Right-shift then resize back to original width so downstream
     // plugins see the same UInt width regardless of shift amount.
     processedOut.load((signal >> shift).resize(signal.getWidth))

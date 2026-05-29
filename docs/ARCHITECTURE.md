@@ -68,8 +68,7 @@ project-root/
 │   │   ├── EdgeDetectorCore.scala    # Demonstrates named-Area pipeline stages
 │   │   ├── ApbMonitorPlugin.scala    # Optional side channel: APB3 register read-back
 │   │   └── util/
-│   │       ├── BuildHelper.scala              # Core autoPull and PrefixArea utilities
-│   │       └── SubsystemCompositePlugin.scala # Generic composite subsystem wrapper plugin
+│   │       └── BuildHelper.scala     # PrefixArea, autoPull, buildBlock, buildSubsystem utilities
 │   │   └── TopIoExportPlugin.scala   # Single IO wiring point
 │   └── test/scala/<pkg>/
 │       ├── TimerCoreTest.scala
@@ -77,7 +76,7 @@ project-root/
 │       ├── EdgeDetectorCoreTest.scala
 │       ├── ElaborationTest.scala
 │       ├── HierarchyCornerCasesTest.scala # Dynamic boundary testing
-│       ├── SubsystemCompositeTest.scala  # Testing production PipelineSubsystemPlugin
+│       ├── DualPipelineTopTest.scala     # Testing flat vs composite hierarchy comparison
 │       └── testhelpers/
 │           ├── TimerHarness.scala
 │           ├── ComparatorHarness.scala
@@ -236,6 +235,32 @@ HysteresisPlugin(loThreshold = 64, hiThreshold = 192)
 Both plugins implement `ThresholdResult`. Anything downstream (`EdgeDetectorPlugin`,
 `ApbMonitorPlugin`, `TopIoExportPlugin`) continues to compile and work unchanged.
 
+### Width contract across the trait chain
+
+`Handle[UInt]` carries no width. By convention in this design the `UInt` width is
+**`timerWidth` bits throughout the entire chain** — `SignalSource`, `ProcessedSignal`, and
+any threshold values must all be consistent with this width.
+
+Width validation is enforced at the Core level once the signal width is known at elaboration
+time. `ComparatorCore` and `HysteresisCore` both `require` that their threshold parameters
+fit in the incoming signal's bit width. `Params` validates that `threshold < 2^timerWidth`
+at construction time.
+
+When adding a new stage Core, add a width `require` immediately after the signal argument
+is available:
+
+```scala
+def build(periphName: String, threshold: Int, countIn: UInt = null): Io = {
+  require(countIn != null, "countIn is required")
+  require(countIn.getWidth >= 32 || threshold < (1 << countIn.getWidth),
+    s"threshold ($threshold) doesn't fit in ${countIn.getWidth}-bit signal")
+  // ...
+}
+```
+
+For `Flow[T]` or `Stream[T]` pipelines (see Section 15), carry the width in the `HardType`
+rather than relying on convention: `Handle[Flow[UInt(timerWidth bits)]]`.
+
 ### When to define a new trait
 
 Define a trait when a stage boundary is a stable, named interface that more than one plugin
@@ -263,23 +288,22 @@ object EdgeDetectorCore {
   def build(periphName: String = "edgeDetector", input: Bool = null): Io = {
     require(input != null, "input signal is required")
 
-    // Stage 1: capture previous value
-    val prevStage = new Area {
-      val prev = RegNext(input) init False
-      prev.setName(s"${periphName}_prev")
-    }
-    // Waveform: prevStage_prev
+    val logic = new PrefixArea(periphName) {
+      // Stage 1: capture previous value
+      // Waveform: edgeDetector_prevStage_prev
+      val prevStage = new Area {
+        val prev = RegNext(input) init False
+      }
 
-    // Stage 2: detect and register edge events
-    val edgeStage = new Area {
-      val rising  = RegNext(input && !prevStage.prev) init False
-      val falling = RegNext(!input && prevStage.prev) init False
-      rising.setName(s"${periphName}_rising")
-      falling.setName(s"${periphName}_falling")
+      // Stage 2: detect and register edge events
+      // Waveforms: edgeDetector_edgeStage_rising, edgeDetector_edgeStage_falling
+      val edgeStage = new Area {
+        val rising  = RegNext(input && !prevStage.prev) init False
+        val falling = RegNext(!input && prevStage.prev) init False
+      }
     }
-    // Waveforms: edgeStage_rising, edgeStage_falling
 
-    Io(rising = edgeStage.rising, falling = edgeStage.falling)
+    Io(rising = logic.edgeStage.rising, falling = logic.edgeStage.falling)
   }
 }
 ```
@@ -293,11 +317,11 @@ Clock    --+ +--+ +--+ +--+ +--
 input    ----------+
                    +-----------
 
-prevStage.prev       ----------+
-                               +-
+edgeDetector_prevStage_prev       ----------+
+                                            +-
 
-edgeStage.rising          -----+
-(output valid)                 +-
+edgeDetector_edgeStage_rising          -----+
+(output valid)                              +-
 ```
 
 - **Latency:** 1 clock cycle from input change to output pulse
@@ -334,6 +358,12 @@ simulation tests wait the correct number of cycles.
 ---
 
 ## 7. TopIoExportPlugin: The Wiring Hub
+
+> **Project-specific files:** `TopIoExportPlugin` and `ApbMonitorPlugin` both do
+> `Component.current.asInstanceOf[MyTop]`, hard-coupling them to the concrete top type.
+> This is intentional — they are the **"edit me for your project"** boundary files, not
+> reusable library infrastructure. When starting a new project, replace `MyTop` with your
+> own top component and update these two files to match your IO bundle.
 
 The **TopIoExportPlugin** is the single point where plugin Handles connect to top-level
 IO pads. It follows a strict **two-phase pattern**:
@@ -387,6 +417,22 @@ change here.
 `enableIn` input Handle, which is specific to the timer implementation and not part of any
 upstream-facing trait.
 
+### Why input Handles are not traitified
+
+Service traits only cover **pipeline data outputs** — the signals that flow forward through
+the processing chain. Control inputs (`enable`, threshold config, etc.) are
+plugin-specific: they vary per implementation and have no meaningful generic contract.
+
+The consequence is deliberate: replacing `TimerPlugin` with a different source plugin
+(e.g. `AdcInputPlugin`) requires editing `TopIoExportPlugin` to load the new plugin's
+input Handles by concrete type. This is expected and correct — `TopIoExportPlugin` is
+the project-specific boundary file where those wiring decisions live. The rest of the
+pipeline (Stage 2 → Stage 3 → Stage 4) remains untouched because it consumes traits,
+not concrete types.
+
+**Rule:** implement a trait for a signal if more than one plugin might produce or consume
+it. Do not trait-wrap control inputs that belong to a specific source implementation.
+
 ### Two-Phase Rule
 
 | Phase | Operation | Blocking? | Purpose |
@@ -407,12 +453,12 @@ case class Params(
     sysClkHz:   HertzNumber = 100 MHz,
     timerWidth: Int         = 8,
     threshold:  Int         = 128,
-    globalHierarchy: Option[Boolean] = None
+    buildEnv:   BuildEnv    = BuildEnv()        // default: FlatBuild
 ) {
   def plugins: Seq[FiberPlugin] = Seq(
-    TimerPlugin(width = timerWidth, hierarchical = globalHierarchy.getOrElse(false)), // Stage 1
-    PassThroughPlugin(),                        // Stage 2: swap with ScalePlugin(shift = 2)
-    ComparatorPlugin(threshold = threshold),    // Stage 3: swap with HysteresisPlugin(lo, hi)
+    TimerPlugin(width = timerWidth, buildEnv = buildEnv),  // Stage 1: signal source
+    PassThroughPlugin(),                                    // Stage 2: swap ↔ ScalePlugin(shift = 2)
+    ComparatorPlugin(threshold = threshold),                // Stage 3: swap ↔ HysteresisPlugin(lo, hi)
     TopIoExportPlugin()
   )
 }
@@ -421,9 +467,32 @@ case class Params(
 - **`def plugins`** (not `val`): fresh instances on every call; required for test re-elaboration
 - **Plugin list order does not matter**: Fiber resolves all dependencies
 - **All constants pass through Params**: no magic numbers in Cores or Plugins
-- **Elaboration Modes Configuration:** 
-  - `DebugBuild` Mode: Compiles modules inside explicit sub-component boundaries. Recommended for floorplanning, physical area partitions, and simulator wave tracing.
-  - `ProductionBuild` Mode: Flatly merges and compiles registers for global area optimization steps.
+- **`buildEnv` propagates to all plugins**: set the build strategy once in `Params`, every plugin that accepts `buildEnv` inherits it automatically
+
+### Build Modes
+
+| Mode | Effect | Use for |
+|------|--------|---------|
+| `BuildEnv(FlatBuild)` | All plugins flat — no Component boundaries | Small designs, maximum global synthesis optimisation |
+| `BuildEnv(HierarchicalBuild)` | All plugins hierarchical — Component boundaries at every plugin that supports them | Large ASICs, floorplanning, wave tracing, timing partitions |
+| `BuildEnv(CustomBuild)` | Each plugin uses its own `pluginDefault` | Mixed designs; fine-grained control |
+
+Plugins call `buildEnv.useHierarchy(pluginDefault)` internally. The `pluginDefault` is the
+plugin's natural behaviour when no global mode is asserted:
+
+```scala
+// Inside a plugin:
+val hier = buildEnv.useHierarchy(false)   // this plugin defaults to flat
+BuildHelper.buildBlock(..., hier, ...)    // resolves to the global mode
+```
+
+### Pre-built profiles
+
+```scala
+Params.productionFlat     // timerWidth=8,  threshold=128,  FlatBuild
+Params.debugHierarchical  // timerWidth=12, threshold=512,  HierarchicalBuild
+Params.subsystemComposite // timerWidth=16, threshold=1024, HierarchicalBuild
+```
 
 ---
 
@@ -628,6 +697,11 @@ Handle[T]()    ->   handle.load(signal)   ->   handle.await
 | Test class | `XxxCoreTest` | `TimerCoreTest` |
 | Harness | `XxxHarness` | `TimerHarness` |
 
+**Register vs port naming split:** registers use a `camelCase` suffix (`countReg`, `aboveReg`)
+while IO ports use `snake_case` (`above_flag`, `rising_edge`). This follows Verilog
+conventions: internal state uses camelCase to distinguish it from port names at a glance;
+ports are snake_case to match typical RTL interface standards.
+
 ### Why `periphName` prefix?
 
 In flat Verilog, all registers live in one namespace. Without prefixes, `countReg` from
@@ -664,6 +738,113 @@ val payload = pixelStream.payload
 Try(host[ConsumerPlugin]).toOption match {
   case Some(_) => // consumer drives ready
   case None    => someStream.ready := True  // sink
+}
+```
+
+### Raw signals vs Flow vs Stream
+
+The pipeline traits in this template use plain `UInt` and `Bool` — correct for fixed-latency,
+always-valid pipelines where every cycle produces a valid output. For signal processing stages
+with variable throughput, choose the appropriate SpinalHDL type:
+
+| Type | Use when | Example |
+|------|----------|---------|
+| Raw `UInt`/`Bool` | Fixed latency, always running, no backpressure | Timer, comparator, edge detector |
+| `Flow[T]` | Sample + valid; producer never stalls but may drop cycles | ADC output, decimator, rate divider |
+| `Stream[T]` | Sample + valid + ready; full handshake, stage can stall | FFT output, FIFO to DMA |
+
+To use `Flow[T]` at a stage boundary, update the trait and both the producing and consuming
+plugins. The stage contract becomes explicit about sample validity:
+
+```scala
+// Flow-based stage boundary
+trait FlowSignalSource { val signalOut: Handle[Flow[UInt]] }
+
+// Producing plugin
+case class AdcInputPlugin(width: Int = 16) extends FiberPlugin with FlowSignalSource {
+  val signalOut: Handle[Flow[UInt]] = Handle()
+
+  val logic = during build new Area {
+    val sample = Flow(UInt(width bits))
+    sample.valid   := adcValid          // gated by ADC data-ready
+    sample.payload := adcData
+    signalOut.load(sample)
+  }
+}
+
+// Consuming plugin — gates processing on valid
+case class FlowPassThroughPlugin() extends FiberPlugin with ProcessedSignal {
+  val processedOut: Handle[UInt] = Handle()
+
+  val logic = during build new Area {
+    val upstream = host[FlowSignalSource].signalOut.await
+    // Only forward when valid; hold last value otherwise
+    val held = RegNextWhen(upstream.payload, upstream.valid) init 0
+    processedOut.load(held)
+  }
+}
+```
+
+The `processedOut` handle then carries a plain `UInt` again — downstream stages that do not
+need to know about the original sample rate stay unchanged.
+
+### Clock Domain Crossing
+
+`StreamFifoCC` is the only `Component` instantiation permitted for CDC (see Design Rules).
+A CDC bridge plugin instantiates it directly inside `during build`, wiring push and pop
+sides within the same plugin body. Both clock domain ports remain visible to the plugin
+because the plugin itself is the architectural boundary.
+
+```scala
+case class AdcCdcPlugin(
+    width:    Int = 16,
+    depth:    Int = 16,
+    adcClock: ClockDomain
+) extends FiberPlugin with FlowSignalSource {
+
+  val signalOut: Handle[Flow[UInt]] = Handle()
+
+  val logic = during build new Area {
+    val adcSamples = host[AdcSampleSource].sampleOut.await  // Flow in ADC clock domain
+
+    // StreamFifoCC is the one permitted Component for CDC
+    val fifo = StreamFifoCC(
+      dataType  = UInt(width bits),
+      depth     = depth,
+      pushClock = adcClock,
+      popClock  = ClockDomain.current   // DSP / system clock domain
+    )
+
+    // Push side — ADC clock domain
+    fifo.io.push.valid   := adcSamples.valid
+    fifo.io.push.payload := adcSamples.payload
+
+    // Pop side — DSP clock domain; always consume
+    val out = Flow(UInt(width bits))
+    out.valid   := fifo.io.pop.valid
+    out.payload := fifo.io.pop.payload
+    fifo.io.pop.ready := True
+
+    signalOut.load(out)
+  }
+}
+```
+
+Key rules for CDC plugins:
+- Both FIFO sides are wired within **one** plugin — this is the single point that knows
+  about both clock domains
+- Never connect across clock domains with raw wires; always route through `StreamFifoCC`
+  (or a 2-FF synchronizer for single-bit flags)
+- The plugin's output Handle carries a signal already in the destination clock domain;
+  downstream plugins require no clock-domain awareness
+
+A **2-FF synchronizer** for single-bit flags (e.g. `aboveFlag` to a secondary output clock):
+
+```scala
+val flagInDomain = ClockingArea(outputClock) {
+  val sync1 = RegNext(aboveFlag) init False
+  val sync2 = RegNext(sync1)    init False
+  sync2
 }
 ```
 

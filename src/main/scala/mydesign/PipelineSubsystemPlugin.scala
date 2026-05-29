@@ -4,62 +4,70 @@ import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
 import spinal.lib.misc.plugin._
-import mydesign.util.BuildHelper
+import mydesign.util._
 
-/** PipelineSubsystemPlugin acts as a composite wrapper plugin inside the main RTL sources.
-  * It groups multiple underlying peripheral logic cores (Timer, Comparator)
-  * and uses BuildHelper.buildSubsystem to package them into a single physical component block
-  * if hierarchical is enabled, completely avoiding nested PluginHost deadlocks while reusing the shared top-level host.
+/** Composite coordinator plugin: Timer + Comparator inside one optional physical boundary.
+  *
+  * Uses BuildHelper.buildSubsystem to create an optional Component wrapper for
+  * floorplanning or waveform tracing. The component boundary crossing is resolved
+  * internally — consumers just call .await on countOut / flagOut without knowing
+  * whether this subsystem is hierarchical or flat.
+  *
+  * Build mode is controlled by `buildEnv`:
+  *   FlatBuild         → flat, no Component boundaries
+  *   HierarchicalBuild → full Component hierarchy (subsystem + inner timer block)
+  *   CustomBuild       → hierarchical by default (pluginDefault = true)
+  *
+  * Consumes:
+  *   - `enableIn: Handle[Bool]` — loaded by the caller's IoExport plugin
+  *
+  * Publishes:
+  *   - `countOut: Handle[UInt]` — timer count, parent-context signal
+  *   - `flagOut:  Handle[Bool]` — comparator above flag, parent-context signal
   */
 case class PipelineSubsystemPlugin(
-    width: Int = 8,
-    threshold: Int = 128,
-    hierarchical: Boolean = true,
-    hierarchicalTimer: Boolean = true, // individual nested hierarchical flag
-    subsystemName: String = "PipelineSubsystem",
-    periphName: String = "timerB"
+    width:         Int      = 8,
+    threshold:     Int      = 128,
+    buildEnv:      BuildEnv = BuildEnv(mode = HierarchicalBuild),
+    subsystemName: String   = "PipelineSubsystem",
+    periphName:    String   = "timerB"
 ) extends FiberPlugin {
 
-  val enableIn:  Handle[Bool] = Handle[Bool]()
-  val countOut:  Handle[UInt] = Handle[UInt]()
-  val flagOut:   Handle[Bool] = Handle[Bool]()
+  val enableIn: Handle[Bool] = Handle[Bool]()
+  val countOut: Handle[UInt] = Handle[UInt]()
+  val flagOut:  Handle[Bool] = Handle[Bool]()
 
   val logic = during build new Area {
     val enableRaw = enableIn.await
+    val hier      = buildEnv.useHierarchy(true)
 
-    // We reuse our BuildHelper to construct the physical boundary!
-    BuildHelper.buildSubsystem(hierarchical, subsystemName) {
-      // Pull inputs if we are in a separate physical component (pulls from parent to subComp)
-      val pulledEnable = BuildHelper.autoPull(enableRaw, hierarchical)
+    val (rawCount, rawFlag) = BuildHelper.buildSubsystem(hier, subsystemName) {
+      val pulledEnable = BuildHelper.autoPull(enableRaw, hier)
       pulledEnable.setName("sub_enable")
 
-      // 1. Build Timer Core conditionally inside its own sub-component using buildBlock with automated pulling!
-      val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchicalTimer, s"${periphName}_TimerCoreSub", pulledEnable) { timerEnable => outSig =>
-        val core = TimerCore.build(
-          periphName = periphName,
-          width      = width,
-          enable     = timerEnable
-        )
+      val timerCount = BuildHelper.buildBlock(
+        HardType(UInt(width bits)), hier, s"${periphName}_TimerCoreSub", pulledEnable
+      ) { timerEnable => outSig =>
+        val core = TimerCore.build(periphName = periphName, width = width, enable = timerEnable)
         outSig := core.count
       }
+      timerCount.setName("sub_timer_count")
 
-      // 2. Stage 2 - PassThrough (identity)
-      val processed = timerCount
-
-      // 3. Build Comparator Core
       val comparator = ComparatorCore.build(
         periphName = "comparatorB",
         threshold  = threshold,
-        countIn    = processed
+        countIn    = timerCount
       )
-
-      // Load outputs (we load the child component's internal signals directly; 
-      // the parent/client will pull them across the boundary)
-      timerCount.setName("sub_timer_count")
       comparator.above.setName("sub_comparator_above")
 
-      countOut.load(timerCount)
-      flagOut.load(comparator.above)
+      (timerCount, comparator.above)
     }
+
+    val crossedCount = BuildHelper.autoPull(rawCount, hier)
+    val crossedFlag  = BuildHelper.autoPull(rawFlag,  hier)
+    crossedCount.setName("countOut")
+    crossedFlag.setName("flagOut")
+    countOut.load(crossedCount)
+    flagOut.load(crossedFlag)
   }
 }

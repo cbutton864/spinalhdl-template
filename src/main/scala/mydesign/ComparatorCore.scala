@@ -26,6 +26,8 @@ object ComparatorCore {
       countIn:    UInt   = null
   ): Io = {
     require(countIn != null, "countIn signal is required")
+    require(countIn.getWidth >= 32 || threshold < (1 << countIn.getWidth),
+      s"threshold ($threshold) doesn't fit in ${countIn.getWidth}-bit signal (max ${(1 << countIn.getWidth) - 1})")
 
     val logic = new PrefixArea(periphName) {
       val aboveReg = RegInit(False)

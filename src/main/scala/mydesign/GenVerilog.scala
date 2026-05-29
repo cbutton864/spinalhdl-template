@@ -1,6 +1,7 @@
 package mydesign
 
 import spinal.core._
+import mydesign.util._
 
 object GenVerilog extends App {
   // ── Build 1: Standard FLAT Production Build ───────────────────────
@@ -45,7 +46,7 @@ object GenVerilog extends App {
     )
   ).generateVerilog {
     // For build 3, we demonstrate compiling a modular subsystem layout using DualPipelineTop as our top design shell!
-    val top = new DualPipelineTop(hierarchicalB = true)
+    val top = new DualPipelineTop(BuildEnv(HierarchicalBuild))
     top
   }
 }

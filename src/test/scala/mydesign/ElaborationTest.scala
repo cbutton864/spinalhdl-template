@@ -3,6 +3,7 @@ package mydesign
 import spinal.core._
 import spinal.core.sim._
 import org.scalatest.funsuite.AnyFunSuite
+import mydesign.util._
 
 /** Elaboration test: verifies the full design generates Verilog without errors.
   *
@@ -135,10 +136,10 @@ class ElaborationTest extends AnyFunSuite {
 
   // ── Hierarchical BuildBlock Demonstration ──────────────────────────────────────────
 
-  test("TimerPlugin compiles FLAT when hierarchical is FALSE") {
+  test("TimerPlugin compiles FLAT in FlatBuild mode") {
     val params = new Params() {
       override def plugins = Seq(
-        TimerPlugin(width = timerWidth, hierarchical = false, periphName = "timer"),
+        TimerPlugin(width = timerWidth, buildEnv = BuildEnv(FlatBuild), periphName = "timer"),
         PassThroughPlugin(),
         ComparatorPlugin(threshold = threshold),
         TopIoExportPlugin()
@@ -152,10 +153,10 @@ class ElaborationTest extends AnyFunSuite {
     assert(!verilogCode.contains("module timer_TimerSub"), "Verilog should not contain module timer_TimerSub in flat mode")
   }
 
-  test("TimerPlugin compiles HIERARCHICAL when hierarchical is TRUE (buildBlock meta-hierarchy)") {
+  test("TimerPlugin compiles HIERARCHICAL in HierarchicalBuild mode (buildBlock meta-hierarchy)") {
     val params = new Params() {
       override def plugins = Seq(
-        TimerPlugin(width = timerWidth, hierarchical = true, periphName = "timer"),
+        TimerPlugin(width = timerWidth, buildEnv = BuildEnv(HierarchicalBuild), periphName = "timer"),
         PassThroughPlugin(),
         ComparatorPlugin(threshold = threshold),
         TopIoExportPlugin()

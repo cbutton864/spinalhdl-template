@@ -8,21 +8,28 @@ class PrefixArea(prefix: String) extends Area {
   this.setName(prefix)
 }
 
+// BuildMode / BuildEnv — build strategy control.
+// Plugins accept a `buildEnv: BuildEnv` parameter and call `buildEnv.useHierarchy(default)`
+// when deciding whether to create a Component boundary. Set the mode once in Params and it
+// propagates to every plugin without per-plugin flag management.
+//   FlatBuild         → always flat   (pluginDefault ignored)
+//   HierarchicalBuild → always hier   (pluginDefault ignored)
+//   CustomBuild       → uses pluginDefault (each plugin decides independently)
 sealed trait BuildMode
-case object DebugBuild      extends BuildMode // Produces subcomponents for floorplanning, partitions, and tracing waves
-case object ProductionBuild extends BuildMode // Produces plain flat RTL for maximum global synthesis optimization
-case object CustomBuild     extends BuildMode
+case object HierarchicalBuild extends BuildMode // component hierarchy for floorplanning, subsystem partitions, wave tracing
+case object FlatBuild         extends BuildMode // flat RTL, no Component boundaries, maximum global synthesis optimisation
+case object CustomBuild       extends BuildMode // per-plugin default
 
 case class BuildEnv(
-    mode: BuildMode = ProductionBuild,
+    mode: BuildMode = FlatBuild,
     globalHierarchy: Option[Boolean] = None
 ) {
   def useHierarchy(pluginDefault: Boolean): Boolean = {
     globalHierarchy.getOrElse {
       mode match {
-        case DebugBuild      => true
-        case ProductionBuild => false
-        case CustomBuild     => pluginDefault
+        case HierarchicalBuild => true
+        case FlatBuild         => false
+        case CustomBuild       => pluginDefault
       }
     }
   }
@@ -55,6 +62,10 @@ object BuildHelper {
   }
 
   // Wraps a block in a subcomponent for floorplanning, partitions, and tracing logic.
+  // WARNING: the body must not capture signals from the enclosing scope when hierarchical=true.
+  // Any such reference crosses a Component boundary without a .pull(), which triggers
+  // PhaseCheckHierarchy errors. Use the inputs overload below for any signal that needs
+  // to cross the boundary — it calls autoPull automatically.
   def buildBlock[T <: Data](
       outputType: HardType[T],
       hierarchical: Boolean,
@@ -104,17 +115,21 @@ object BuildHelper {
     }
   }
 
-  // Groups plugins or cores into a single block. Helpful for physical placement.
-  def buildSubsystem(
+  // Groups cores into a single block. Helpful for physical placement.
+  // Returns the body's result so callers can capture internal signals and cross
+  // the boundary with autoPull before loading parent-scope Handles.
+  def buildSubsystem[T](
       hierarchical: Boolean,
       name: String
-  )(body: => Unit): Unit = {
+  )(body: => T): T = {
     if (hierarchical) {
+      var result: T = null.asInstanceOf[T]
       val block = new Component {
-        body
+        result = body
       }
       block.setDefinitionName(name)
       block.setName(name)
+      result
     } else {
       body
     }
