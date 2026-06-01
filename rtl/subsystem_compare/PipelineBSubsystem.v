@@ -1,12 +1,12 @@
 // Generator : SpinalHDL v1.14.0    git head : 95a5e6c65c54acfc4707c8fe6ef8b5d297cfcbde
 // Component : PipelineBSubsystem
-// Git hash  : f3bd2395f1b945373aa3f854f165db897d58a99d
+// Git hash  : 69d3691904fc21287a2edf8bf77d2004c0470bc0
 
 `timescale 1ns/1ps 
 module PipelineBSubsystem (
   input  wire          sub_enable,
-  output wire [7:0]    _zz_sub_countB_out,
-  output wire          _zz_sub_flagB_out,
+  output wire [7:0]    countOut,
+  output wire          flagOut,
   input  wire          clk,
   input  wire          reset
 );
@@ -20,8 +20,8 @@ module PipelineBSubsystem (
     .clk             (clk                                     ), //i
     .reset           (reset                                   )  //i
   );
-  assign _zz_sub_countB_out = timerB_TimerCoreSub_sub_timer_count;
-  assign _zz_sub_flagB_out = sub_comparator_above;
+  assign countOut = timerB_TimerCoreSub_sub_timer_count;
+  assign flagOut = sub_comparator_above;
   always @(posedge clk or posedge reset) begin
     if(reset) begin
       sub_comparator_above <= 1'b0;
