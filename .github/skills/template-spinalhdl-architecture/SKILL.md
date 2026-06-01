@@ -1,5 +1,5 @@
 ---
-name: spinalhdl-architecture
+name: template-spinalhdl-architecture
 description: 'How to design high-performance, deadlock-free SpinalHDL designs using stateless Cores and Plugin configurations under the flat-plugin architecture.'
 argument-hint: 'create a new stage, decouple plugin from core, add a service boundary'
 user-invocable: true

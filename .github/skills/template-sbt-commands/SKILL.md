@@ -1,5 +1,5 @@
 ---
-name: sbt-commands
+name: template-sbt-commands
 description: 'Workflow skill for running sbt compilation, simulation unit execution, single Verilator checks, and regenerating flat, hierarchical, or split-file Verilog targets.'
 argument-hint: 'compile, test, testOnly, runMain'
 user-invocable: true
