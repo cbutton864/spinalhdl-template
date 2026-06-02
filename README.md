@@ -1,6 +1,6 @@
 # SpinalHDL Dynamic & Flat Hybrid-Plugin Template
 
-A battle-hardened, general-use SpinalHDL template demonstrating the **hybrid Fiber-Plugin architecture**. It supports compiling the design as a plain flat module for global area optimization, or generating modular, dynamic boundaries (`buildBlock`) for backend floorplanning, layout placement partitioning, timing exceptions, and selective simulation wave tracing.
+General-use SpinalHDL template demonstrating the **hybrid Fiber-Plugin architecture**. It supports compiling the design as a plain flat module for global area optimization, or generating modular, dynamic boundaries (`buildBlock`) for backend floorplanning, layout placement partitioning, timing exceptions, and selective simulation wave tracing.
 
 All RTL logic core blocks reside within composable software plugins, completely automating manual register namespacing, bus port declarations, and cross-boundary signal routing.
 
