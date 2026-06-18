@@ -20,6 +20,6 @@ class SubsystemCompositeTest extends AnyFunSuite {
     )
 
     println("Generating Dual Pipeline Verilog with composite configuration...")
-    config.generateVerilog(new DualPipelineTop(BuildEnv(HierarchicalBuild)))
+    config.generateVerilog(new DualPipelineTop(DualPipelineParams(buildEnv = BuildEnv(HierarchicalBuild))))
   }
 }

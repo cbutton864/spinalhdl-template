@@ -1,4 +1,5 @@
 rtl/subsystem_compare/timerB_TimerCoreSub.v
 rtl/subsystem_compare/timerA_TimerSub.v
 rtl/subsystem_compare/PipelineBSubsystem.v
+rtl/subsystem_compare/comparatorA_ComparatorSub.v
 rtl/subsystem_compare/DualPipelineTop.v

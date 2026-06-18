@@ -1706,22 +1706,81 @@ an isolated testbench.
 
 #### 23.4 Parameterized Meta-Hierarchy (The `buildBlock` Pattern)
 
-For designs that require a flat, performance-optimal structure in production but benefit from hierarchical boundaries in debugging, schematic generation, or GTKWave simulation, you **SHOULD** use the *Parameterized Meta-Hierarchy* pattern via `BuildHelper.buildBlock`. 
+For designs that require a flat, performance-optimal structure in production but benefit from
+hierarchical boundaries in debugging, schematic generation, or GTKWave simulation, you **SHOULD**
+use the *Parameterized Meta-Hierarchy* pattern via `BuildHelper.buildBlock`.
 
-This pattern allows the compiler to dynamically generate sub-modules around core logic at elaboration-time based on a boolean parameter (`hierarchical` or a global configuration environment like `BuildEnv`), without requiring duplicate OOP wrappers or manual wiring.
+This pattern lets one Scala source generate **either** flat RTL **or** per-block sub-modules at
+elaboration time, selected by a boolean (typically `buildEnv.useHierarchy(default)`). No duplicate
+OOP wrappers, no manual wiring.
+
+> **Do not hand-roll `class XxxBlock extends Component` wrappers for this.** A hand-written
+> wrapper duplicates the flat path, is easy to get wrong, and (because production stays flat) is
+> dead code in the common case. `buildBlock` is the one sanctioned mechanism. See the pitfall in
+> §23.4.2.
 
 ```scala
+// Single signal in, single signal out
 val timerCount = BuildHelper.buildBlock(HardType(UInt(width bits)), hierarchical, "TimerSub", enable) { pulledEnable => outSig =>
   val core = TimerCore.build("timer", width, enable = pulledEnable)
   outSig := core.count
 }
 ```
 
+For a stage that consumes and produces **streams** (with back-pressure), pass the inputs as a
+tuple and use an `IMasterSlave` bundle as the single output type so the handshake and any sideband
+cross together. Name the ports for a readable review-build signature:
+
+```scala
+val iq = BuildHelper.buildBlock(
+  HardType(IqStream(width)),                 // IMasterSlave output → emitted as a master port
+  buildEnv.useHierarchy(false),
+  "PassThrough",
+  (inStream, overflowIn),                     // inputs: a slave Stream + a sideband Bool
+  outName = "iqOut",
+  inNames = Seq("iqIn", "overflowIn")
+) { case (pulledIn, pulledOverflow) => outIq =>
+  val core = PassThroughCore.build(in = pulledIn, overflowIn = pulledOverflow, /* ... */)
+  outIq.samples  << core.out
+  outIq.overflow := core.overflowOut
+}
+```
+
 ##### 23.4.1 Rules for Meta-Hierarchy blocks
 
-1. **Hierarchy Isolation via Automated Pulling**: When `hierarchical` is enabled, any signal crossing the dynamic component boundary (such as clock-domain signals, host controls, or outputs from other cores) passed via the `inputs` parameter is automatically walked and pulled using recursive `.pull()` rules (including inside tuples or sequences) inside the child context. This prevents SpinalHDL `PhaseCheckHierarchy` violations with zero manual boilerplate.
-2. **Definite Naming**: The block **MUST** specify explicit tracking names. Inside the dynamic builder, both `setDefinitionName(name)` and `setName(name)` **MUST** be executed to avoid SpinalHDL generating auto-incrementing `unnamed` modules in the output Verilog.
-3. **Logic Idempotence**: The underlying RTL logic **MUST** execute identically regardless of whether the hierarchical block is compiled flat or as a nested component.
+1. **Direction-correct input ports (`prepareInput`)**: signals passed via the `inputs` parameter
+   cross the boundary as real ports, not a one-way `.pull()`. A `Stream` (or any `IMasterSlave`)
+   becomes a `slave` port, so its `ready` flows back out correctly; a plain `Data` becomes an `in`
+   port. Tuples, `Seq`, and `Option` recurse element-wise. The parent-side connection is deferred
+   until after the child Component closes. This is why `buildBlock`'s `inputs` overload — **not**
+   `autoPull`/`.pull()` — is required for anything with a backward (handshake) direction.
+2. **Single output, `IMasterSlave`-aware**: the output is one `HardType[T]`. If `T` is an
+   `IMasterSlave` bundle it is emitted as a `master` port; otherwise as `out`. Bundle multiple
+   results (e.g. a stream + a sideband flag) into one `IMasterSlave` bundle rather than reaching
+   for multiple outputs.
+3. **Readable ports for review**: pass `outName` / `inNames` to name the generated module ports.
+   Naming applies **only** in hierarchical mode (the ports are fresh there); in flat mode the body
+   receives the parent's own signals, so renaming is intentionally skipped to avoid leaking names
+   across the flat design.
+4. **Definite module naming**: `buildBlock` calls both `setDefinitionName(name)` and `setName(name)`
+   so the output never contains auto-incrementing `unnamed` modules.
+5. **Logic idempotence**: the underlying RTL **MUST** be identical whether compiled flat or nested.
+   The block is a packaging boundary, never a behavioural change.
+
+##### 23.4.2 Pitfall: do not force hierarchy, and avoid the `out`/`in` shadow
+
+- **Production stays flat.** The default `BuildEnv` is `FlatBuild`. Hierarchy is an opt-in review
+  aid (`HierarchicalBuild` / a `GenVerilogHier` entry point), never a requirement. Do **not**
+  convert flat plugins to Component-based wiring to "organise" the design — that is the §25.2
+  antipattern and defeats global synthesis optimisation.
+- **Bus adapters stay flat.** A register-file/bus-adapter plugin (e.g. APB/AXI-Lite via a slave
+  factory) terminates the bus in one core and publishes plain Handles. Do not wrap the bus in a
+  `buildBlock`; let the datapath blocks (which carry only plain signals/streams) be the hierarchy.
+- **The `out`/`in` shadow bug**: inside a hand-written `Component`'s `io` Bundle, never name a port
+  `out` (or `in`). `val out = master(...)` followed by `val overflow = out Bool()` parses as
+  `out.Bool()` on the *Stream you just declared*, yielding the cryptic
+  `value Bool is not a member of Stream`. Prefer `buildBlock` (which sidesteps this); if you must
+  write a Component by hand, name ports `xxxIn` / `xxxOut`.
 
 #### 23.5 Subsystem Composite Packaging (The `buildSubsystem` Pattern)
 
